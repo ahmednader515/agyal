@@ -1,13 +1,11 @@
-import { unstable_noStore } from "next/cache";
 import { getCoursesPublished, getTeacherIdsExcludedFromPublicCourseLists, getUserById } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { TeacherCoursesSearch, type TeacherCourseListItem } from "./TeacherCoursesSearch";
 import { getLocaleFromCookie, getServerTranslator } from "@/lib/i18n/server";
 import { pickLocalizedText } from "@/lib/i18n/localized-field";
 
-/** عدم تخزين الصفحة مؤقتاً — الكورسات الجديدة والمحذوفة تظهر فوراً */
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+/** Published catalog is cached; user filters are applied in-memory. */
+export const revalidate = 60;
 
 export async function generateMetadata() {
   const t = await getServerTranslator();
@@ -20,17 +18,13 @@ export async function generateMetadata() {
 type Props = { searchParams: Promise<{ category?: string; teacher?: string }> };
 
 export default async function CoursesPage({ searchParams }: Props) {
-  unstable_noStore();
   const [t, locale] = await Promise.all([getServerTranslator(), getLocaleFromCookie()]);
   const { category: categorySlug, teacher: teacherId } = await searchParams;
-  let courses: Awaited<ReturnType<typeof getCoursesPublished>> = [];
-  try {
-    courses = await getCoursesPublished(true);
-  } catch {
-    // DB not connected
-  }
 
-  const hideTeacherCreators = await getTeacherIdsExcludedFromPublicCourseLists();
+  const [courses, hideTeacherCreators] = await Promise.all([
+    getCoursesPublished(true).catch(() => [] as Awaited<ReturnType<typeof getCoursesPublished>>),
+    getTeacherIdsExcludedFromPublicCourseLists(),
+  ]);
 
   let teacherName: string | null = null;
   const tid = teacherId?.trim();

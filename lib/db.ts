@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { neon } from "@neondatabase/serverless";
 import type {
   User,
@@ -24,6 +25,7 @@ import type {
   PlatformDetailsItem,
 } from "./types";
 import { generateCopyrightCodeCandidate } from "./copyright-code";
+import { PUBLIC_CACHE_REVALIDATE_SECONDS, PUBLIC_CACHE_TAGS } from "./public-cache";
 import {
   HOMEPAGE_DEFAULT_CTA_BADGE_AR,
   HOMEPAGE_DEFAULT_CTA_BUTTON_AR,
@@ -525,9 +527,15 @@ async function ensureCategoryCreatedByColumn(): Promise<void> {
 }
 
 export async function getCategories(): Promise<Category[]> {
-  await ensureCategoryCreatedByColumn();
-  const rows = await sql`SELECT * FROM "Category" ORDER BY "order" ASC`;
-  return rowsToCamel(rows as Record<string, unknown>[]) as Category[];
+  return unstable_cache(
+    async () => {
+      await ensureCategoryCreatedByColumn();
+      const rows = await sql`SELECT * FROM "Category" ORDER BY "order" ASC`;
+      return rowsToCamel(rows as Record<string, unknown>[]) as Category[];
+    },
+    ["categories-list"],
+    { revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAGS.categories] },
+  )();
 }
 
 /** أقسام تظهر في لوحة إنشاء/تعديل الدورة: المدرس يرى أقسامه فقط؛ الأدمن يرى أقسام المنصة وأقسام أي أدمن/مساعد */
@@ -708,10 +716,16 @@ async function ensureReviewBilingualColumns(): Promise<void> {
 }
 
 export async function getReviews(): Promise<Review[]> {
-  await ensureReviewImageUrlColumn();
-  await ensureReviewBilingualColumns();
-  const rows = await sql`SELECT * FROM "Review" ORDER BY "order" ASC, created_at DESC`;
-  return rowsToCamel(rows as Record<string, unknown>[]) as Review[];
+  return unstable_cache(
+    async () => {
+      await ensureReviewImageUrlColumn();
+      await ensureReviewBilingualColumns();
+      const rows = await sql`SELECT * FROM "Review" ORDER BY "order" ASC, created_at DESC`;
+      return rowsToCamel(rows as Record<string, unknown>[]) as Review[];
+    },
+    ["reviews-list"],
+    { revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAGS.reviews] },
+  )();
 }
 
 export async function getReviewById(id: string): Promise<Review | null> {
@@ -1889,7 +1903,12 @@ async function getHomepageSettingsUncached(): Promise<HomepageSetting> {
 }
 
 /** نفس الطلب (layout + metadata + الصفحة) يقرأ الإعدادات مرة واحدة فقط */
-export const getHomepageSettings = cache(getHomepageSettingsUncached);
+const getHomepageSettingsStored = unstable_cache(
+  getHomepageSettingsUncached,
+  ["homepage-settings"],
+  { revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAGS.homepage] },
+);
+export const getHomepageSettings = cache(getHomepageSettingsStored);
 
 function pickReviewsSectionString(
   row: Record<string, unknown>,
@@ -3011,31 +3030,46 @@ export async function getSubscriptionPlanById(id: string): Promise<{
   };
 }
 
-/** هل للمستخدم اشتراك منصة نشط (أي وقت انتهاء في المستقبل) */
-export async function userHasActivePlatformSubscription(userId: string): Promise<boolean> {
+/** Active subscription + latest expiry in one round-trip. */
+export async function getStudentPlatformSubscriptionStatus(
+  userId: string,
+): Promise<{ active: boolean; expiresAt: Date | null }> {
   try {
     await ensurePlatformSubscriptionSchema();
     const rows = await sql`
-      SELECT 1 FROM "UserPlatformSubscription"
+      SELECT MAX(expires_at) as m FROM "UserPlatformSubscription"
       WHERE user_id = ${userId} AND expires_at > NOW()
-      LIMIT 1
     `;
-    return (rows as unknown[]).length > 0;
+    const m = (rows[0] as { m?: Date | string | null } | undefined)?.m;
+    if (!m) return { active: false, expiresAt: null };
+    const expiresAt = m instanceof Date ? m : new Date(String(m));
+    return { active: true, expiresAt };
   } catch {
-    return false;
+    return { active: false, expiresAt: null };
   }
+}
+
+/** هل للمستخدم اشتراك منصة نشط (أي وقت انتهاء في المستقبل) */
+export async function userHasActivePlatformSubscription(userId: string): Promise<boolean> {
+  const status = await getStudentPlatformSubscriptionStatus(userId);
+  return status.active;
 }
 
 /** اشتراك نشط + دورة منشورة + سعرها > 0 ⇒ وصول كامل كمسجّل */
 export async function userHasActivePlatformSubscriptionForPaidCourse(userId: string, courseId: string): Promise<boolean> {
-  const active = await userHasActivePlatformSubscription(userId);
-  if (!active) return false;
-  const course = await getCourseById(courseId);
+  return userHasActivePlatformSubscriptionForPaidCourseRow(userId, await getCourseById(courseId));
+}
+
+export async function userHasActivePlatformSubscriptionForPaidCourseRow(
+  userId: string,
+  course: Course | null | undefined,
+): Promise<boolean> {
   if (!course) return false;
   const pub = (course as { isPublished?: boolean }).isPublished ?? (course as { is_published?: boolean }).is_published;
   if (!pub) return false;
   const price = Number((course as { price?: unknown }).price) || 0;
-  return price > 0;
+  if (price <= 0) return false;
+  return userHasActivePlatformSubscription(userId);
 }
 
 /** تسجيل في الدورة أو اشتراك منصة نشط على دورة مدفوعة منشورة */
@@ -3045,19 +3079,18 @@ export async function hasFullCourseAccessAsStudent(userId: string, courseId: str
   return userHasActivePlatformSubscriptionForPaidCourse(userId, courseId);
 }
 
+export async function hasFullCourseAccessAsStudentForCourse(
+  userId: string,
+  course: { id: string; isPublished?: boolean; is_published?: boolean; price?: unknown },
+): Promise<boolean> {
+  const en = await getEnrollment(userId, course.id);
+  if (en) return true;
+  return userHasActivePlatformSubscriptionForPaidCourseRow(userId, course as Course);
+}
+
 export async function getLatestPlatformSubscriptionExpiry(userId: string): Promise<Date | null> {
-  try {
-    await ensurePlatformSubscriptionSchema();
-    const rows = await sql`
-      SELECT MAX(expires_at) as m FROM "UserPlatformSubscription"
-      WHERE user_id = ${userId} AND expires_at > NOW()
-    `;
-    const m = (rows[0] as { m?: Date | string | null } | undefined)?.m;
-    if (!m) return null;
-    return m instanceof Date ? m : new Date(String(m));
-  } catch {
-    return null;
-  }
+  const status = await getStudentPlatformSubscriptionStatus(userId);
+  return status.expiresAt;
 }
 
 export async function purchasePlatformSubscription(userId: string, planId: string): Promise<{ expiresAt: Date }> {
@@ -3263,6 +3296,14 @@ export async function getCourseBySlugOrId(slugOrId: string): Promise<Course | nu
 }
 
 export async function getCoursesPublished(withCategory = true): Promise<(Course & { category?: Category })[]> {
+  return unstable_cache(
+    () => getCoursesPublishedUncached(withCategory),
+    ["courses-published", withCategory ? "with-category" : "plain"],
+    { revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAGS.courses] },
+  )();
+}
+
+async function getCoursesPublishedUncached(withCategory = true): Promise<(Course & { category?: Category })[]> {
   await ensureLessonRatingsSchema();
   if (!withCategory) {
     const rows = await sql`
@@ -3295,15 +3336,28 @@ export async function getPublishedCourseSlugsByIds(ids: string[]): Promise<Map<s
   const uniq = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
   const map = new Map<string, string>();
   if (uniq.length === 0) return map;
-  const results = await Promise.all(
-    uniq.map((id) =>
-      sql`SELECT id, slug FROM "Course" WHERE id = ${id} AND is_published = true LIMIT 1`,
-    ),
-  );
-  for (const rows of results) {
-    const r = rows[0] as { id?: unknown; slug?: unknown } | undefined;
-    if (r?.id != null && r?.slug != null) {
-      map.set(String(r.id), String(r.slug));
+  try {
+    const rows = await sql`
+      SELECT id, slug FROM "Course"
+      WHERE is_published = true AND id IN (${uniq})
+    `;
+    for (const r of rows as { id?: unknown; slug?: unknown }[]) {
+      if (r?.id != null && r?.slug != null) {
+        map.set(String(r.id), String(r.slug));
+      }
+    }
+  } catch {
+    /* fallback for drivers that reject array IN */
+    const results = await Promise.all(
+      uniq.map((id) =>
+        sql`SELECT id, slug FROM "Course" WHERE id = ${id} AND is_published = true LIMIT 1`,
+      ),
+    );
+    for (const rows of results) {
+      const r = rows[0] as { id?: unknown; slug?: unknown } | undefined;
+      if (r?.id != null && r?.slug != null) {
+        map.set(String(r.id), String(r.slug));
+      }
     }
   }
   return map;
@@ -3583,7 +3637,7 @@ export async function deleteLessonsByCourseId(courseId: string): Promise<void> {
 }
 
 /** جلب كورس مع الحصص والاختبارات (عدد أسئلة كل اختبار) — للصفحة التفصيلية */
-export async function getCourseWithContent(segment: string): Promise<{
+async function getCourseWithContentUncached(segment: string): Promise<{
   course: (Course & { category?: Record<string, unknown> }) | null;
   lessons: Record<string, unknown>[];
   quizzes: Array<Record<string, unknown> & { _count: { questions: number } }>;
@@ -3607,11 +3661,13 @@ export async function getCourseWithContent(segment: string): Promise<{
     courseRow = c as unknown as Record<string, unknown>;
   }
   const courseId = courseRow.id as string;
-  const lessonRows = await sql`SELECT * FROM "Lesson" WHERE course_id = ${courseId} ORDER BY "order" ASC`;
-  const quizRows = await sql`
-    SELECT q.*, (SELECT COUNT(*)::int FROM "Question" WHERE quiz_id = q.id) as question_count
-    FROM "Quiz" q WHERE q.course_id = ${courseId} ORDER BY q."order" ASC
-  `;
+  const [lessonRows, quizRows] = await Promise.all([
+    sql`SELECT * FROM "Lesson" WHERE course_id = ${courseId} ORDER BY "order" ASC`,
+    sql`
+      SELECT q.*, (SELECT COUNT(*)::int FROM "Question" WHERE quiz_id = q.id) as question_count
+      FROM "Quiz" q WHERE q.course_id = ${courseId} ORDER BY q."order" ASC
+    `,
+  ]);
   const lessons = rowsToCamel(lessonRows as Record<string, unknown>[]);
   const quizzes = (quizRows as Record<string, unknown>[]).map((q) => ({
     ...rowToCamel(q),
@@ -3624,6 +3680,17 @@ export async function getCourseWithContent(segment: string): Promise<{
     quizzes,
   };
 }
+
+export const getCourseWithContent = cache(async (segment: string) =>
+  unstable_cache(
+    () => getCourseWithContentUncached(segment),
+    ["course-with-content", segment],
+    {
+      revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS,
+      tags: [PUBLIC_CACHE_TAGS.courses, PUBLIC_CACHE_TAGS.courseContent(segment)],
+    },
+  )(),
+);
 
 /** جلب دورة كاملة مع حصص واختبارات (أسئلة + خيارات) — لصفحة التعديل */
 export async function getCourseForEdit(courseId: string): Promise<{

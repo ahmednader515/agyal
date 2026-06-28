@@ -17,6 +17,7 @@ import {
   createCategory,
   categoryIsManageableOnDashboard,
 } from "@/lib/db";
+import { revalidateCoursesCache } from "@/lib/public-cache";
 
 type LessonInput = { title: string; titleAr?: string; videoUrl?: string; content?: string; pdfUrl?: string; acceptsHomework?: boolean };
 type QuestionOptionInput = { text: string; isCorrect: boolean };
@@ -201,6 +202,7 @@ export async function PUT(
     }
   }
 
+  revalidateCoursesCache(slug, id);
   return NextResponse.json({ success: true });
 }
 
@@ -287,5 +289,7 @@ export async function DELETE(
 
   await deleteCourse(id);
 
+  const slug = (course as { slug?: string }).slug ?? "";
+  revalidateCoursesCache(slug, id);
   return NextResponse.json({ success: true });
 }

@@ -12,8 +12,7 @@ import { ForceLogoutGuard } from "@/components/ForceLogoutGuard";
 import { authOptions } from "@/lib/auth";
 import {
   getHomepageSettings,
-  userHasActivePlatformSubscription,
-  getLatestPlatformSubscriptionExpiry,
+  getStudentPlatformSubscriptionStatus,
 } from "@/lib/db";
 import { normalizeHeroHex } from "@/lib/hero-bg";
 import { getDir, makeTranslator } from "@/lib/i18n/core";
@@ -112,10 +111,9 @@ export default async function RootLayout({
   try {
     const session = await getServerSession(authOptions);
     if (session?.user?.role === "STUDENT" && session.user.id) {
-      const active = await userHasActivePlatformSubscription(session.user.id);
-      if (active) {
-        const exp = await getLatestPlatformSubscriptionExpiry(session.user.id);
-        if (exp) {
+      const sub = await getStudentPlatformSubscriptionStatus(session.user.id);
+      if (sub.active) {
+        if (sub.expiresAt) {
           platformSubscriptionExpiryLabel = new Intl.DateTimeFormat(locale === "ar" ? "ar-EG" : "en-US", {
             weekday: "long",
             year: "numeric",
@@ -123,7 +121,7 @@ export default async function RootLayout({
             day: "numeric",
             hour: "2-digit",
             minute: "2-digit",
-          }).format(exp);
+          }).format(sub.expiresAt);
         } else {
           platformSubscriptionExpiryLabel = t("header.active", "نشط");
         }

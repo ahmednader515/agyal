@@ -11,10 +11,8 @@ import {
   getUserById,
   getLiveStreamsByCourseId,
   getHomepageSettings,
-  hasFullCourseAccessAsStudent,
   userHasWhiteboardAccessForCourse,
-  userHasActivePlatformSubscriptionForPaidCourse,
-  getLatestPlatformSubscriptionExpiry,
+  getStudentPlatformSubscriptionStatus,
 } from "@/lib/db";
 import { EnrollButton } from "./EnrollButton";
 import { WhiteboardCodePrompt } from "@/components/WhiteboardCodePrompt";
@@ -91,13 +89,13 @@ export default async function CoursePage({ params }: Props) {
   try {
     data = await getCourseWithContent(decoded);
     if (data?.course && session?.user?.id && session.user.role === "STUDENT") {
-      const [en, user, lessons, quizzes, fullAccess, subPaid] = await Promise.all([
-        getEnrollment(session.user.id, data.course.id),
+      const courseRow = data.course;
+      const [en, user, lessons, quizzes, subStatus] = await Promise.all([
+        getEnrollment(session.user.id, courseRow.id),
         getUserById(session.user.id),
-        getAllowedLessonIdsForUserCourse(session.user.id, data.course.id),
-        getAllowedQuizIdsForUserCourse(session.user.id, data.course.id),
-        hasFullCourseAccessAsStudent(session.user.id, data.course.id),
-        userHasActivePlatformSubscriptionForPaidCourse(session.user.id, data.course.id),
+        getAllowedLessonIdsForUserCourse(session.user.id, courseRow.id),
+        getAllowedQuizIdsForUserCourse(session.user.id, courseRow.id),
+        getStudentPlatformSubscriptionStatus(session.user.id),
       ]);
       isEnrolled = !!en;
       if (!isEnrolled) {
@@ -105,10 +103,15 @@ export default async function CoursePage({ params }: Props) {
         allowedQuizIds = quizzes;
       }
       userBalance = Number(user?.balance) || 0;
-      hasFullStudentAccess = fullAccess;
-      paidCourseCoveredBySubscription = subPaid && !isEnrolled;
+      const pub =
+        (courseRow as { isPublished?: boolean; is_published?: boolean }).isPublished ??
+        (courseRow as { is_published?: boolean }).is_published;
+      const price = Number((courseRow as { price?: unknown }).price) || 0;
+      paidCourseCoveredBySubscription =
+        !isEnrolled && subStatus.active && !!pub && price > 0;
+      hasFullStudentAccess = !!en || paidCourseCoveredBySubscription;
       if (paidCourseCoveredBySubscription) {
-        subscriptionExpiresAt = await getLatestPlatformSubscriptionExpiry(session.user.id);
+        subscriptionExpiresAt = subStatus.expiresAt;
       }
     }
   } catch {
@@ -155,12 +158,16 @@ export default async function CoursePage({ params }: Props) {
     session?.user?.role === "TEACHER" &&
     courseCreatedBy != null &&
     session.user.id === courseCreatedBy;
-  const hasWhiteboardAccess =
-    isStaff ||
-    isCourseTeacher ||
-    (session?.user?.id ? await userHasWhiteboardAccessForCourse(session.user.id, course.id) : false);
 
-  const liveStreams = canAccessContent ? await getLiveStreamsByCourseId(course.id) : [];
+  const [hasWhiteboardAccess, liveStreams, homepageSettings] = await Promise.all([
+    isStaff || isCourseTeacher
+      ? Promise.resolve(true)
+      : session?.user?.id
+        ? userHasWhiteboardAccessForCourse(session.user.id, course.id)
+        : Promise.resolve(false),
+    canAccessContent ? getLiveStreamsByCourseId(course.id) : Promise.resolve([]),
+    getHomepageSettings(),
+  ]);
   const hasWhiteboardStreams = liveStreams.some((ls) => {
     const row = ls as unknown as Record<string, unknown>;
     return row.whiteboard_enabled !== false && row.whiteboardEnabled !== false;
@@ -170,7 +177,6 @@ export default async function CoursePage({ params }: Props) {
     session?.user?.role === "STUDENT" &&
     hasWhiteboardStreams &&
     !hasWhiteboardAccess;
-  const homepageSettings = await getHomepageSettings();
   const formatStreamDate = (d: Date | string) => {
     const date = typeof d === "string" ? new Date(d) : d;
     return new Intl.DateTimeFormat(locale === "ar" ? "ar-EG" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(date);

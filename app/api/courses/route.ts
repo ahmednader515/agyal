@@ -13,6 +13,7 @@ import {
   createCategory,
   categoryIsManageableOnDashboard,
 } from "@/lib/db";
+import { revalidateCoursesCache } from "@/lib/public-cache";
 
 export async function GET() {
   try {
@@ -203,5 +204,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  revalidateCoursesCache(course.slug, course.id);
   return NextResponse.json({ id: course.id, title: course.title, slug: course.slug });
 }
