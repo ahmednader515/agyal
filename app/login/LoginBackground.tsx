@@ -3,6 +3,52 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
+const DEFAULT_BASE_COLOR: [number, number, number] = [0.051, 0.58, 0.533];
+
+function parseCssColorToRgbNormalized(cssColor: string): [number, number, number] {
+  const trimmed = cssColor.trim();
+  if (!trimmed) return DEFAULT_BASE_COLOR;
+
+  if (trimmed.startsWith("#")) {
+    let hex = trimmed.slice(1);
+    if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
+    if (hex.length >= 6) {
+      return [
+        parseInt(hex.slice(0, 2), 16) / 255,
+        parseInt(hex.slice(2, 4), 16) / 255,
+        parseInt(hex.slice(4, 6), 16) / 255,
+      ];
+    }
+  }
+
+  const rgbMatch = trimmed.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if (rgbMatch) {
+    return [
+      parseFloat(rgbMatch[1]) / 255,
+      parseFloat(rgbMatch[2]) / 255,
+      parseFloat(rgbMatch[3]) / 255,
+    ];
+  }
+
+  return DEFAULT_BASE_COLOR;
+}
+
+function readAuthBackgroundColor(): [number, number, number] {
+  const root = document.documentElement;
+  const platform = getComputedStyle(root).getPropertyValue("--platform-primary").trim();
+  if (platform && !platform.startsWith("var(")) {
+    return parseCssColorToRgbNormalized(platform);
+  }
+
+  const probe = document.createElement("span");
+  probe.style.display = "none";
+  probe.style.color = "var(--color-primary)";
+  document.body.appendChild(probe);
+  const resolved = getComputedStyle(probe).color;
+  probe.remove();
+  return parseCssColorToRgbNormalized(resolved);
+}
+
 export default function LoginBackground() {
   const mountRef = useRef<HTMLDivElement | null>(null);
 
@@ -14,11 +60,18 @@ export default function LoginBackground() {
     let clock: THREE.Clock;
     const mouse = new THREE.Vector2(0.5, 0.5);
     const targetMouse = new THREE.Vector2(0.5, 0.5);
+    const themeColor = readAuthBackgroundColor();
     const uniforms = {
       t: { value: 0.0 },
       r: { value: new THREE.Vector2(1, 1) },
       mouse: { value: new THREE.Vector2(0.5, 0.5) },
+      baseColor: { value: new THREE.Vector3(...themeColor) },
     };
+
+    function applyThemeColor() {
+      const [r, g, b] = readAuthBackgroundColor();
+      uniforms.baseColor.value.set(r, g, b);
+    }
 
     function init() {
       scene = new THREE.Scene();
@@ -54,6 +107,7 @@ export default function LoginBackground() {
                     uniform vec2 r;
                     uniform float t;
                     uniform vec2 mouse;
+                    uniform vec3 baseColor;
                     varying vec2 vUv;
                     #define PI 3.14159265359
                     mat2 rot(float a) {
@@ -111,7 +165,6 @@ export default function LoginBackground() {
                         uv.x *= r.x / r.y;
                         vec2 uv0 = uv;
                         vec3 col = vec3(0.0);
-                        vec3 baseColor = vec3(0.6353, 0.9608, 0.8588);
                         float time = t * 0.4;
                         float noise = (snoise(uv * 0.5 + time * 0.02) + 1.0) * 0.5;
                         col += noise * baseColor * 0.08;
@@ -193,7 +246,16 @@ export default function LoginBackground() {
     init();
     animate();
 
+    const themeObserver = new MutationObserver(() => {
+      applyThemeColor();
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+
     return () => {
+      themeObserver.disconnect();
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("touchmove", onTouchMove);
