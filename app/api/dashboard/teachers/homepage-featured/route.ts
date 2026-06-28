@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getTeachersFeatureEnabled, HOME_TEACHER_PREVIEW_MAX, setTeacherHomepageFeaturedSlots } from "@/lib/db";
+import { revalidateHomepageCache } from "@/lib/public-cache";
 
 export async function PATCH(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -35,5 +36,6 @@ export async function PATCH(request: NextRequest) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg || "فشل الحفظ" }, { status: 400 });
   }
+  revalidateHomepageCache();
   return NextResponse.json({ success: true });
 }

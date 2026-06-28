@@ -25,7 +25,7 @@ import type {
   PlatformDetailsItem,
 } from "./types";
 import { generateCopyrightCodeCandidate } from "./copyright-code";
-import { PUBLIC_CACHE_REVALIDATE_SECONDS, PUBLIC_CACHE_TAGS } from "./public-cache";
+import { PUBLIC_CACHE_TAGS } from "./public-cache";
 import {
   HOMEPAGE_DEFAULT_CTA_BADGE_AR,
   HOMEPAGE_DEFAULT_CTA_BUTTON_AR,
@@ -534,7 +534,7 @@ export async function getCategories(): Promise<Category[]> {
       return rowsToCamel(rows as Record<string, unknown>[]) as Category[];
     },
     ["categories-list"],
-    { revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAGS.categories] },
+    { tags: [PUBLIC_CACHE_TAGS.categories] },
   )();
 }
 
@@ -724,7 +724,7 @@ export async function getReviews(): Promise<Review[]> {
       return rowsToCamel(rows as Record<string, unknown>[]) as Review[];
     },
     ["reviews-list"],
-    { revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAGS.reviews] },
+    { tags: [PUBLIC_CACHE_TAGS.reviews] },
   )();
 }
 
@@ -1906,7 +1906,7 @@ async function getHomepageSettingsUncached(): Promise<HomepageSetting> {
 const getHomepageSettingsStored = unstable_cache(
   getHomepageSettingsUncached,
   ["homepage-settings"],
-  { revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAGS.homepage] },
+  { tags: [PUBLIC_CACHE_TAGS.homepage] },
 );
 export const getHomepageSettings = cache(getHomepageSettingsStored);
 
@@ -3299,7 +3299,7 @@ export async function getCoursesPublished(withCategory = true): Promise<(Course 
   return unstable_cache(
     () => getCoursesPublishedUncached(withCategory),
     ["courses-published", withCategory ? "with-category" : "plain"],
-    { revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAGS.courses] },
+    { tags: [PUBLIC_CACHE_TAGS.courses] },
   )();
 }
 
@@ -3686,7 +3686,6 @@ export const getCourseWithContent = cache(async (segment: string) =>
     () => getCourseWithContentUncached(segment),
     ["course-with-content", segment],
     {
-      revalidate: PUBLIC_CACHE_REVALIDATE_SECONDS,
       tags: [PUBLIC_CACHE_TAGS.courses, PUBLIC_CACHE_TAGS.courseContent(segment)],
     },
   )(),

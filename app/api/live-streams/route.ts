@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { canManageCourse } from "@/lib/permissions";
 import { getCourseById, getLiveStreamsAll, getLiveStreamsForTeacher, createLiveStream } from "@/lib/db";
+import { revalidateCoursesCache } from "@/lib/public-cache";
 import { parseScheduledAtIso } from "@/lib/datetime-local";
 
 /** قائمة كل البثوث — للأدمن ومساعد الأدمن؛ للمدرس: بثوث كورساته فقط */
@@ -74,6 +75,8 @@ export async function POST(request: NextRequest) {
       order: body.order ?? 0,
       whiteboard_enabled: body.whiteboardEnabled !== false,
     });
+    const course = await getCourseById(courseId.trim());
+    revalidateCoursesCache((course as { slug?: string } | null)?.slug, courseId.trim());
     return NextResponse.json(stream);
   } catch (e) {
     console.error(e);

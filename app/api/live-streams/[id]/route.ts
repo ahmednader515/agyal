@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { canManageCourse } from "@/lib/permissions";
 import { getCourseById, getLiveStreamById, updateLiveStream, deleteLiveStream } from "@/lib/db";
+import { revalidateCoursesCache } from "@/lib/public-cache";
 import { parseScheduledAtIso } from "@/lib/datetime-local";
 
 async function assertStaffCanAccessStream(
@@ -90,6 +91,14 @@ export async function PUT(
     if (body.order !== undefined) await updateLiveStream(id, { order: body.order });
     if (body.whiteboardEnabled !== undefined) await updateLiveStream(id, { whiteboard_enabled: body.whiteboardEnabled });
     const updated = await getLiveStreamById(id);
+    const cid =
+      (updated as { courseId?: string; course_id?: string } | null)?.courseId ??
+      (updated as { course_id?: string } | null)?.course_id ??
+      "";
+    if (cid) {
+      const course = await getCourseById(cid);
+      revalidateCoursesCache((course as { slug?: string } | null)?.slug, cid);
+    }
     return NextResponse.json(updated);
   } catch (e) {
     console.error(e);
@@ -111,6 +120,14 @@ export async function DELETE(
   if (!existing) return NextResponse.json({ error: "البث غير موجود" }, { status: 404 });
   const okDel = await assertStaffCanAccessStream(session.user.role, session.user.id, existing as { course_id?: string });
   if (!okDel) return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
+  const cid =
+    (existing as { courseId?: string; course_id?: string }).courseId ??
+    (existing as { course_id?: string }).course_id ??
+    "";
   await deleteLiveStream(id);
+  if (cid) {
+    const course = await getCourseById(cid);
+    revalidateCoursesCache((course as { slug?: string } | null)?.slug, cid);
+  }
   return NextResponse.json({ ok: true });
 }

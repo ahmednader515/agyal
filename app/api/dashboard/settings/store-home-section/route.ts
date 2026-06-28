@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { updateHomepageSettings } from "@/lib/db";
+import { revalidateHomepageCache } from "@/lib/public-cache";
 
 const TITLE_MAX = 200;
 const DESC_MAX = 2000;
@@ -34,5 +35,6 @@ export async function PATCH(request: NextRequest) {
       { status: 500 },
     );
   }
+  revalidateHomepageCache();
   return NextResponse.json({ success: true });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { setTeachersFeatureEnabled } from "@/lib/db";
+import { revalidateHomepageCache } from "@/lib/public-cache";
 
 export async function PATCH(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -29,5 +30,6 @@ export async function PATCH(request: NextRequest) {
       { status: 500 },
     );
   }
+  revalidateHomepageCache();
   return NextResponse.json({ success: true, teachersEnabled: body.enabled });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getReviewById, updateReview, deleteReview } from "@/lib/db";
+import { revalidateReviewsCache } from "@/lib/public-cache";
 
 /** جلب تعليق واحد — للأدمن */
 export async function GET(
@@ -62,6 +63,7 @@ export async function PUT(
     if (body.imageUrl !== undefined) updates.image_url = body.imageUrl?.trim() || null;
     if (body.order !== undefined) updates.order = body.order;
     await updateReview(id, updates);
+    revalidateReviewsCache();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Dashboard reviews PUT:", error);
@@ -85,6 +87,7 @@ export async function DELETE(
   }
   try {
     await deleteReview(id);
+    revalidateReviewsCache();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Dashboard reviews DELETE:", error);

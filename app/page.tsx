@@ -17,8 +17,6 @@ import { getLocaleFromCookie, getServerTranslator } from "@/lib/i18n/server";
 import { pickLocalizedText } from "@/lib/i18n/localized-field";
 
 /** Cache public shell; below-fold still loads dynamic user bits inside Suspense. */
-export const revalidate = 60;
-
 export default async function HomePage() {
   const [t, locale] = await Promise.all([getServerTranslator(), getLocaleFromCookie()]);
 

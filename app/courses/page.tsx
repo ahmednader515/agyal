@@ -4,9 +4,7 @@ import { TeacherCoursesSearch, type TeacherCourseListItem } from "./TeacherCours
 import { getLocaleFromCookie, getServerTranslator } from "@/lib/i18n/server";
 import { pickLocalizedText } from "@/lib/i18n/localized-field";
 
-/** Published catalog is cached; user filters are applied in-memory. */
-export const revalidate = 60;
-
+/** Published catalog uses tag-based cache; invalidated on admin save. */
 export async function generateMetadata() {
   const t = await getServerTranslator();
   return {

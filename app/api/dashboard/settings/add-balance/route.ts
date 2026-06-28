@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getHomepageSettings, updateHomepageSettings } from "@/lib/db";
+import { revalidateHomepageCache } from "@/lib/public-cache";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -70,6 +71,7 @@ export async function PUT(request: NextRequest) {
       add_balance_waiting_note: norm(body.addBalanceWaitingNote),
       add_balance_waiting_note_en: norm(body.addBalanceWaitingNoteEn),
     });
+    revalidateHomepageCache();
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "فشل حفظ الإعدادات" }, { status: 500 });
