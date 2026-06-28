@@ -1,0 +1,20 @@
+name = "agyal-tldraw-sync"
+main = "worker/worker.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+# Comma-separated allowed origins, e.g. http://localhost:3000,https://your-app.vercel.app
+ALLOWED_ORIGINS = "http://localhost:3000,https://agyal.vercel.app"
+
+[[durable_objects.bindings]]
+name = "TLDRAW_DURABLE_OBJECT"
+class_name = "TldrawDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TldrawDurableObject"]
+
+[[r2_buckets]]
+binding = "TLDRAW_BUCKET"
+bucket_name = "agyal"
+preview_bucket_name = "agyal"
