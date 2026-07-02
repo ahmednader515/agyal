@@ -18,6 +18,7 @@ import {
   categoryIsManageableOnDashboard,
 } from "@/lib/db";
 import { revalidateCoursesCache } from "@/lib/public-cache";
+import { resolveCourseClassification } from "@/lib/course-classification-api";
 
 type LessonInput = { title: string; titleAr?: string; videoUrl?: string; content?: string; pdfUrl?: string; acceptsHomework?: boolean };
 type QuestionOptionInput = { text: string; isCorrect: boolean };
@@ -55,6 +56,8 @@ export async function PUT(
     categoryNameAr?: string;
     categoryNameEn?: string;
     acceptsHomework?: boolean;
+    country?: string;
+    learningTrack?: string;
     lessons?: LessonInput[];
     quizzes?: QuizInput[];
     contentOrder?: ContentOrderEntry[];
@@ -123,6 +126,16 @@ export async function PUT(
     }
   }
 
+  const classification = await resolveCourseClassification({
+    role: session.user.role,
+    userId: session.user.id,
+    bodyCountry: body.country,
+    bodyLearningTrack: body.learningTrack,
+  });
+  if ("error" in classification) {
+    return NextResponse.json({ error: classification.error }, { status: 400 });
+  }
+
   await updateCourse(id, {
     title: titleEn,
     title_ar: titleAr,
@@ -136,6 +149,8 @@ export async function PUT(
     max_quiz_attempts: body.maxQuizAttempts ?? null,
     ...(categoryId !== undefined && { category_id: categoryId }),
     ...(body.acceptsHomework !== undefined && { accepts_homework: body.acceptsHomework }),
+    country: classification.country,
+    learning_track: classification.learning_track,
   });
 
   await deleteLessonsByCourseId(id);
@@ -245,6 +260,11 @@ export async function GET(
     isPublished: c.isPublished ?? c.is_published ?? true,
     maxQuizAttempts: c.maxQuizAttempts ?? c.max_quiz_attempts ?? null,
     categoryId: (c as { categoryId?: string | null }).categoryId ?? null,
+    country: (c as { country?: string | null }).country ?? null,
+    learningTrack:
+      (c as { learningTrack?: string | null }).learningTrack ??
+      (c as { learning_track?: string | null }).learning_track ??
+      null,
     lessons: data.lessons.map((l) => ({
       title: l.title,
       titleAr: l.titleAr ?? l.title_ar,

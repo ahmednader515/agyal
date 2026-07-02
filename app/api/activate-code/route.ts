@@ -5,20 +5,7 @@ import {
   getActivationCodeByCode,
   useActivationCode,
   getEnrollment,
-  getAllowedLessonIdsForUserCourse,
-  getAllowedQuizIdsForUserCourse,
-  hasFullCourseAccessAsStudent,
-  userHasWhiteboardAccessForCourse,
 } from "@/lib/db";
-
-async function studentHasCourseContentAccess(userId: string, courseId: string): Promise<boolean> {
-  const [allowedLessons, allowedQuizzes, fullAccess] = await Promise.all([
-    getAllowedLessonIdsForUserCourse(userId, courseId),
-    getAllowedQuizIdsForUserCourse(userId, courseId),
-    hasFullCourseAccessAsStudent(userId, courseId),
-  ]);
-  return fullAccess || allowedLessons.length > 0 || allowedQuizzes.length > 0;
-}
 
 /** تفعيل كود مجاني لدورة — للطالب فقط */
 export async function POST(request: NextRequest) {
@@ -45,29 +32,10 @@ export async function POST(request: NextRequest) {
   const courseId = row.courseId;
 
   if (row.grantsWhiteboard) {
-    const hasCourseAccess = await studentHasCourseContentAccess(session.user.id, courseId);
-    if (!hasCourseAccess) {
-      return NextResponse.json(
-        { error: "يجب أن تكون مسجّلاً في الدورة أو تملك وصولاً لمحتواها قبل تفعيل كود السبورة" },
-        { status: 400 }
-      );
-    }
-    const alreadyHasWhiteboard = await userHasWhiteboardAccessForCourse(session.user.id, courseId);
-    if (alreadyHasWhiteboard) {
-      return NextResponse.json({ error: "لديك وصول للسبورة في هذه الدورة بالفعل" }, { status: 400 });
-    }
-
-    const result = await useActivationCode(row.id, session.user.id);
-    if (!result) {
-      return NextResponse.json({ error: "كود غير صالح أو مستخدم مسبقاً" }, { status: 404 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: "تم تفعيل كود السبورة بنجاح — يمكنك الآن دخول الغرفة المباشرة",
-      courseId: result.courseId,
-      scope: "whiteboard",
-    });
+    return NextResponse.json(
+      { error: "أكواد السبورة المرتبطة بالدورات لم تعد مدعومة. استخدم أكواد مكتبة السبورات من لوحة التحكم." },
+      { status: 400 },
+    );
   }
 
   const alreadyEnrolled = await getEnrollment(session.user.id, courseId);

@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { hash } from "bcryptjs";
 import { authOptions } from "@/lib/auth";
 import { createUser, getTeachersFeatureEnabled, getUserByEmail, getUsersByRole } from "@/lib/db";
+import { ARAB_COUNTRY_CODES, LEARNING_TRACKS } from "@/lib/student-signup";
+import { teacherCanViewStatistics } from "@/lib/teacher-statistics";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -22,6 +24,9 @@ export async function GET() {
       teacher_avatar_url: (u as { teacher_avatar_url?: string | null }).teacher_avatar_url ?? null,
       teacher_homepage_order:
         (u as { teacher_homepage_order?: number | null }).teacher_homepage_order ?? null,
+      country: u.country ?? null,
+      learning_track: u.learning_track ?? null,
+      teacher_statistics_enabled: teacherCanViewStatistics(u),
     })),
   });
 }
@@ -42,6 +47,9 @@ export async function POST(request: NextRequest) {
     phone?: string;
     teacherSubject?: string | null;
     teacherAvatarUrl?: string | null;
+    country?: string;
+    learningTrack?: string;
+    teacherStatisticsEnabled?: boolean;
   };
   try {
     body = await request.json();
@@ -57,6 +65,14 @@ export async function POST(request: NextRequest) {
   }
   if (password.length < 6) {
     return NextResponse.json({ error: "كلمة المرور 6 أحرف على الأقل" }, { status: 400 });
+  }
+  const country = body.country?.trim();
+  const learningTrack = body.learningTrack?.trim();
+  if (!country || !(ARAB_COUNTRY_CODES as readonly string[]).includes(country)) {
+    return NextResponse.json({ error: "اختر دولة صالحة للمدرس" }, { status: 400 });
+  }
+  if (!learningTrack || !(LEARNING_TRACKS as readonly string[]).includes(learningTrack as (typeof LEARNING_TRACKS)[number])) {
+    return NextResponse.json({ error: "اختر مناهج أو كورسات للمدرس" }, { status: 400 });
   }
   const existing = await getUserByEmail(email);
   if (existing) {
@@ -83,6 +99,9 @@ export async function POST(request: NextRequest) {
       guardian_number: null,
       teacher_subject,
       teacher_avatar_url,
+      country,
+      learning_track: learningTrack,
+      teacher_statistics_enabled: body.teacherStatisticsEnabled !== false,
     });
     return NextResponse.json({ success: true, id: user.id, email: user.email });
   } catch (e) {

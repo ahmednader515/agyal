@@ -14,11 +14,19 @@ import {
   categoryIsManageableOnDashboard,
 } from "@/lib/db";
 import { revalidateCoursesCache } from "@/lib/public-cache";
+import { resolveCourseClassification } from "@/lib/course-classification-api";
+import { filterCoursesForStudentProfile, getStudentClassificationContext } from "@/lib/student-classification";
 
 export async function GET() {
   try {
-    const courses = await getCoursesPublished(true);
-    return NextResponse.json(courses);
+    const [courses, studentCtx] = await Promise.all([
+      getCoursesPublished(true),
+      getStudentClassificationContext(),
+    ]);
+    const filtered = studentCtx
+      ? filterCoursesForStudentProfile(courses, studentCtx.profile)
+      : courses;
+    return NextResponse.json(filtered);
   } catch (error) {
     console.error("API courses:", error);
     return NextResponse.json(
@@ -58,6 +66,8 @@ export async function POST(request: NextRequest) {
     categoryNameAr?: string;
     categoryNameEn?: string;
     acceptsHomework?: boolean;
+    country?: string;
+    learningTrack?: string;
     lessons?: LessonInput[];
     quizzes?: QuizInput[];
     contentOrder?: Array<{ type: "lesson"; index: number } | { type: "quiz"; index: number }>;
@@ -111,6 +121,16 @@ export async function POST(request: NextRequest) {
     categoryId = cid;
   }
 
+  const classification = await resolveCourseClassification({
+    role: session.user.role,
+    userId: session.user.id,
+    bodyCountry: body.country,
+    bodyLearningTrack: body.learningTrack,
+  });
+  if ("error" in classification) {
+    return NextResponse.json({ error: classification.error }, { status: 400 });
+  }
+
   let course;
   try {
     course = await createCourse({
@@ -128,6 +148,8 @@ export async function POST(request: NextRequest) {
       max_quiz_attempts: body.maxQuizAttempts ?? null,
       category_id: categoryId,
       accepts_homework: !!body.acceptsHomework,
+      country: classification.country,
+      learning_track: classification.learning_track,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

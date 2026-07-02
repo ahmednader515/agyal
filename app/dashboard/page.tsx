@@ -14,8 +14,10 @@ import {
   listStudentStorePurchases,
   userHasActivePlatformSubscription,
   getLatestPlatformSubscriptionExpiry,
+  getWhiteboardLibraryFeatureEnabled,
 } from "@/lib/db";
 import { getServerTranslator } from "@/lib/i18n/server";
+import { teacherCanViewStatistics } from "@/lib/teacher-statistics";
 import { MyCoursesSection } from "./MyCoursesSection";
 import { ActivateCodeSection } from "./ActivateCodeSection";
 import { StudentSubscriptionsPanel } from "./StudentSubscriptionsPanel";
@@ -31,7 +33,11 @@ export default async function DashboardPage() {
   const isTeacher = session.user.role === "TEACHER";
 
   if (isTeacher) {
-    const myCourses = await getCoursesWithCountsForCreator(session.user.id).catch(() => []);
+    const [myCourses, teacherUser] = await Promise.all([
+      getCoursesWithCountsForCreator(session.user.id).catch(() => []),
+      getUserById(session.user.id),
+    ]);
+    const teacherStatisticsEnabled = teacherCanViewStatistics(teacherUser);
     const publishedCount = myCourses.filter((c) => {
       const row = c as Record<string, unknown>;
       return Boolean(row.isPublished ?? row.is_published ?? false);
@@ -81,20 +87,22 @@ export default async function DashboardPage() {
                 )}
               </p>
             </Link>
-            <Link
-              href="/dashboard/statistics"
-              className="flex min-h-[160px] flex-col justify-center rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center transition hover:border-[var(--color-primary)]/30"
-            >
-              <h3 className="font-semibold text-[var(--color-foreground)]">
-                {t("dashboard.page.studentStatisticsTitle", "Student statistics")}
-              </h3>
-              <p className="mt-1 text-sm text-[var(--color-muted)]">
-                {t(
-                  "dashboard.page.studentStatisticsDesc",
-                  "Quiz scores and enrollments in your courses",
-                )}
-              </p>
-            </Link>
+            {teacherStatisticsEnabled ? (
+              <Link
+                href="/dashboard/statistics"
+                className="flex min-h-[160px] flex-col justify-center rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center transition hover:border-[var(--color-primary)]/30"
+              >
+                <h3 className="font-semibold text-[var(--color-foreground)]">
+                  {t("dashboard.page.studentStatisticsTitle", "Student statistics")}
+                </h3>
+                <p className="mt-1 text-sm text-[var(--color-muted)]">
+                  {t(
+                    "dashboard.page.studentStatisticsDesc",
+                    "Quiz scores and enrollments in your courses",
+                  )}
+                </p>
+              </Link>
+            ) : null}
             <Link
               href="/dashboard/messages"
               className="flex min-h-[160px] flex-col justify-center rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center transition hover:border-[var(--color-primary)]/30"
@@ -155,8 +163,10 @@ export default async function DashboardPage() {
     let studentHasActiveSub = false;
     let studentSubExpiresIso: string | null = null;
     let storePurchases: Awaited<ReturnType<typeof listStudentStorePurchases>> = [];
+    let whiteboardLibraryEnabled = false;
     try {
       subscriptionsFeature = await getSubscriptionsFeatureEnabled();
+      whiteboardLibraryEnabled = await getWhiteboardLibraryFeatureEnabled();
       if (subscriptionsFeature) {
         subscriptionPlansForStudent = await listActiveSubscriptionPlansPublic();
         studentHasActiveSub = await userHasActivePlatformSubscription(session.user.id);
@@ -213,6 +223,22 @@ export default async function DashboardPage() {
 
         <div className="grid gap-6 sm:grid-cols-2">
           <ActivateCodeSection />
+          {whiteboardLibraryEnabled ? (
+            <Link
+              href="/dashboard/whiteboard-files"
+              className="flex flex-col justify-center rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-card)] text-center transition hover:border-[var(--color-primary)]/30"
+            >
+              <h2 className="text-lg font-semibold text-[var(--color-foreground)]">
+                {t("dashboard.page.whiteboardLibraryTitle", "Whiteboard library")}
+              </h2>
+              <p className="mt-2 text-sm text-[var(--color-muted)]">
+                {t(
+                  "dashboard.page.whiteboardLibraryDesc",
+                  "Browse and unlock standalone whiteboard notes with activation codes",
+                )}
+              </p>
+            </Link>
+          ) : null}
           <Link
             href="/dashboard/messages"
             className="flex flex-col justify-center rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-card)] text-center transition hover:border-[var(--color-primary)]/30"
@@ -597,6 +623,20 @@ export default async function DashboardPage() {
                   {t(
                     "dashboard.page.platformStoreCardDesc",
                     "Enable or disable the platform store section and add digital products such as handouts and PDF books (name, description, price, image, PDF file).",
+                  )}
+                </p>
+              </Link>
+              <Link
+                href="/dashboard/whiteboard-files"
+                className="flex min-h-[200px] flex-col justify-center rounded-[var(--radius-card)] border border-[var(--color-primary)]/25 bg-[var(--color-background)] p-6 text-center transition hover:border-[var(--color-primary)]/50 hover:shadow-[var(--shadow-card)]"
+              >
+                <h3 className="font-semibold text-[var(--color-foreground)]">
+                  {t("dashboard.page.whiteboardLibraryCardTitle", "Whiteboard library")}
+                </h3>
+                <p className="mt-2 text-sm text-[var(--color-muted)]">
+                  {t(
+                    "dashboard.page.whiteboardLibraryCardDesc",
+                    "Create standalone whiteboard files, publish them, and generate activation codes for students.",
                   )}
                 </p>
               </Link>

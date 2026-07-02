@@ -8,6 +8,7 @@ import {
   getUserById,
   updateUser,
 } from "@/lib/db";
+import { ARAB_COUNTRY_CODES, LEARNING_TRACKS } from "@/lib/student-signup";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -29,6 +30,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     phone?: string | null;
     teacherSubject?: string | null;
     teacherAvatarUrl?: string | null;
+    country?: string;
+    learningTrack?: string;
+    teacherStatisticsEnabled?: boolean;
   };
   try {
     body = await request.json();
@@ -75,6 +79,26 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     patch.teacher_avatar_url = u.length ? u.slice(0, 2000) : null;
   }
 
+  if (body.country !== undefined) {
+    const country = String(body.country).trim();
+    if (!country || !(ARAB_COUNTRY_CODES as readonly string[]).includes(country)) {
+      return NextResponse.json({ error: "اختر دولة صالحة" }, { status: 400 });
+    }
+    patch.country = country;
+  }
+
+  if (body.learningTrack !== undefined) {
+    const track = String(body.learningTrack).trim();
+    if (!track || !(LEARNING_TRACKS as readonly string[]).includes(track as (typeof LEARNING_TRACKS)[number])) {
+      return NextResponse.json({ error: "اختر مناهج أو كورسات" }, { status: 400 });
+    }
+    patch.learning_track = track;
+  }
+
+  if (body.teacherStatisticsEnabled !== undefined) {
+    patch.teacher_statistics_enabled = Boolean(body.teacherStatisticsEnabled);
+  }
+
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "لا توجد حقول للتحديث" }, { status: 400 });
   }
@@ -97,6 +121,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           student_number: updated.student_number ?? null,
           teacher_subject: (updated as { teacher_subject?: string | null }).teacher_subject ?? null,
           teacher_avatar_url: (updated as { teacher_avatar_url?: string | null }).teacher_avatar_url ?? null,
+          country: updated.country ?? null,
+          learning_track: updated.learning_track ?? null,
+          teacher_statistics_enabled: (updated as { teacher_statistics_enabled?: boolean }).teacher_statistics_enabled !== false,
         }
       : null,
   });

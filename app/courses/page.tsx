@@ -1,4 +1,9 @@
 import { getCoursesPublished, getTeacherIdsExcludedFromPublicCourseLists, getUserById } from "@/lib/db";
+import {
+  filterCoursesForStudentProfile,
+  getStudentClassificationContext,
+  isTeacherVisibleToStudentProfile,
+} from "@/lib/student-classification";
 import { redirect } from "next/navigation";
 import { TeacherCoursesSearch, type TeacherCourseListItem } from "./TeacherCoursesSearch";
 import { getLocaleFromCookie, getServerTranslator } from "@/lib/i18n/server";
@@ -19,9 +24,10 @@ export default async function CoursesPage({ searchParams }: Props) {
   const [t, locale] = await Promise.all([getServerTranslator(), getLocaleFromCookie()]);
   const { category: categorySlug, teacher: teacherId } = await searchParams;
 
-  const [courses, hideTeacherCreators] = await Promise.all([
+  const [courses, hideTeacherCreators, studentCtx] = await Promise.all([
     getCoursesPublished(true).catch(() => [] as Awaited<ReturnType<typeof getCoursesPublished>>),
     getTeacherIdsExcludedFromPublicCourseLists(),
+    getStudentClassificationContext(),
   ]);
 
   let teacherName: string | null = null;
@@ -29,6 +35,9 @@ export default async function CoursesPage({ searchParams }: Props) {
   if (tid) {
     const u = await getUserById(tid).catch(() => null);
     if (!u || u.role !== "TEACHER") {
+      redirect("/courses");
+    }
+    if (studentCtx && !isTeacherVisibleToStudentProfile(u, studentCtx.profile)) {
       redirect("/courses");
     }
     teacherName = u.name ?? null;
@@ -51,6 +60,10 @@ export default async function CoursesPage({ searchParams }: Props) {
       const creator = row.createdById ?? row.created_by_id ?? null;
       return !creator || !hideTeacherCreators.has(creator);
     });
+  }
+
+  if (studentCtx) {
+    filtered = filterCoursesForStudentProfile(filtered, studentCtx.profile);
   }
 
   const categoryName =

@@ -1,6 +1,8 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
+import { getUserById, getWhiteboardLibraryFeatureEnabled } from "@/lib/db";
+import { teacherCanViewStatistics } from "@/lib/teacher-statistics";
 import { DashboardNav } from "./DashboardNav";
 import { getServerTranslator } from "@/lib/i18n/server";
 
@@ -14,6 +16,9 @@ export default async function DashboardLayout({
   const isAdmin = session.user.role === "ADMIN";
   const isAssistant = session.user.role === "ASSISTANT_ADMIN";
   const isTeacher = session.user.role === "TEACHER";
+  const teacherUser = isTeacher ? await getUserById(session.user.id) : null;
+  const teacherStatisticsEnabled = isTeacher ? teacherCanViewStatistics(teacherUser) : true;
+  const whiteboardLibraryEnabled = await getWhiteboardLibraryFeatureEnabled();
 
   return (
     <>
@@ -40,7 +45,13 @@ export default async function DashboardLayout({
             {t("dashboard.title", "Dashboard")}
           </h1>
           <nav className="flex flex-wrap items-center gap-2">
-            <DashboardNav isAdmin={isAdmin} isAssistant={isAssistant} isTeacher={isTeacher} />
+            <DashboardNav
+              isAdmin={isAdmin}
+              isAssistant={isAssistant}
+              isTeacher={isTeacher}
+              teacherStatisticsEnabled={teacherStatisticsEnabled}
+              whiteboardLibraryEnabled={whiteboardLibraryEnabled}
+            />
           </nav>
         </div>
         {children}

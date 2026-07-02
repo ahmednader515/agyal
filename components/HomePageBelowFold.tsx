@@ -37,6 +37,7 @@ import {
 } from "@/lib/homepage-known-defaults";
 import { homepageDefaultForLocale } from "@/lib/homepage-default-for-locale";
 import { pickLocalizedText } from "@/lib/i18n/localized-field";
+import { filterCoursesForStudentProfile, filterTeachersForStudentProfile, getStudentClassificationContext } from "@/lib/student-classification";
 
 type CourseWithCategory = Awaited<ReturnType<typeof getCoursesPublished>>[number];
 
@@ -55,7 +56,7 @@ export async function HomePageBelowFold({
   const studentId =
     subscriptionsEnabled && session?.user?.role === "STUDENT" ? session.user.id : null;
 
-  const [teachersResult, plansResult, storeResult, coursesResult, categoriesResult, reviewsResult, subResult] =
+  const [teachersResult, plansResult, storeResult, coursesResult, categoriesResult, reviewsResult, subResult, studentCtx] =
     await Promise.all([
       teachersEnabled
         ? listTeachersForHomepage().catch(() => [] as Awaited<ReturnType<typeof listTeachersForHomepage>>)
@@ -77,12 +78,17 @@ export async function HomePageBelowFold({
             expiresAt: null,
           }))
         : Promise.resolve(null),
+      getStudentClassificationContext(),
     ]);
 
   let courses: CourseWithCategory[] = coursesResult;
+  let teachersForHome = teachersResult;
+  if (studentCtx) {
+    courses = filterCoursesForStudentProfile(courses, studentCtx.profile);
+    teachersForHome = filterTeachersForStudentProfile(teachersForHome, studentCtx.profile);
+  }
   const categories = categoriesResult;
   const reviews = reviewsResult;
-  const teachersForHome = teachersResult;
   const subscriptionPlansHome = plansResult;
   const storeProductsHome = storeResult;
 

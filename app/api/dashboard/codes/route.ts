@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
   if (!session || (session.user.role !== "ADMIN" && session.user.role !== "ASSISTANT_ADMIN" && session.user.role !== "TEACHER")) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 403 });
   }
-  let body: { courseId?: string; count?: number; lessonIds?: string[]; quizIds?: string[]; grantsWhiteboard?: boolean };
+  let body: { courseId?: string; count?: number; lessonIds?: string[]; quizIds?: string[] };
   try {
     body = await request.json();
   } catch {
@@ -44,17 +44,12 @@ export async function POST(request: NextRequest) {
   }
   const courseId = body.courseId?.trim();
   const count = Math.min(Math.max(Number(body.count) || 1, 1), 500);
-  const grantsWhiteboard = body.grantsWhiteboard === true;
-  const lessonIds = grantsWhiteboard
-    ? []
-    : Array.isArray(body.lessonIds)
-      ? body.lessonIds.filter((x) => typeof x === "string")
-      : [];
-  const quizIds = grantsWhiteboard
-    ? []
-    : Array.isArray(body.quizIds)
-      ? body.quizIds.filter((x) => typeof x === "string")
-      : [];
+  const lessonIds = Array.isArray(body.lessonIds)
+    ? body.lessonIds.filter((x) => typeof x === "string")
+    : [];
+  const quizIds = Array.isArray(body.quizIds)
+    ? body.quizIds.filter((x) => typeof x === "string")
+    : [];
   if (!courseId) {
     return NextResponse.json({ error: "معرف الدورة مطلوب" }, { status: 400 });
   }
@@ -71,7 +66,7 @@ export async function POST(request: NextRequest) {
       count,
       lessonIds.length > 0 ? lessonIds : null,
       quizIds.length > 0 ? quizIds : null,
-      grantsWhiteboard
+      false
     );
     return NextResponse.json({ created, count: created.length });
   } catch (error) {

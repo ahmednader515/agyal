@@ -36,10 +36,14 @@ export function DashboardNav({
   isAdmin,
   isAssistant,
   isTeacher,
+  teacherStatisticsEnabled = true,
+  whiteboardLibraryEnabled = false,
 }: {
   isAdmin: boolean;
   isAssistant: boolean;
   isTeacher: boolean;
+  teacherStatisticsEnabled?: boolean;
+  whiteboardLibraryEnabled?: boolean;
 }) {
   const t = useT();
   const isStaff = isAdmin || isAssistant;
@@ -51,7 +55,9 @@ export function DashboardNav({
         <NavLink href="/dashboard/courses/new" exact>
           {t("dashboardNav.createCourse", "Create course")}
         </NavLink>
-        <NavLink href="/dashboard/statistics">{t("dashboardNav.studentStats", "Student statistics")}</NavLink>
+        {teacherStatisticsEnabled ? (
+          <NavLink href="/dashboard/statistics">{t("dashboardNav.studentStats", "Student statistics")}</NavLink>
+        ) : null}
         <NavLink href="/dashboard/codes">{t("dashboardNav.createCodes", "Create codes")}</NavLink>
         <NavLink href="/dashboard/homework">{t("dashboardNav.homework", "Student homework")}</NavLink>
         <NavLink href="/dashboard/messages">{t("dashboardNav.contactMyStudents", "Contact my students")}</NavLink>
@@ -63,6 +69,11 @@ export function DashboardNav({
   if (!isStaff) {
     return (
       <>
+        {whiteboardLibraryEnabled ? (
+          <NavLink href="/dashboard/whiteboard-files">
+            {t("dashboardNav.whiteboardLibrary", "Whiteboard library")}
+          </NavLink>
+        ) : null}
         <NavLink href="/dashboard/messages">
           {t("dashboardNav.inbox", "Inbox")}
         </NavLink>
@@ -125,6 +136,7 @@ export function DashboardNav({
           <NavLink href="/dashboard/subscriptions">{t("dashboardNav.platformSubscriptions", "Platform subscriptions")}</NavLink>
           <NavLink href="/dashboard/subscription-students">{t("dashboardNav.subscribedStudents", "Subscribed students")}</NavLink>
           <NavLink href="/dashboard/store">{t("dashboardNav.platformStore", "Platform store")}</NavLink>
+          <NavLink href="/dashboard/whiteboard-files">{t("dashboardNav.whiteboardLibrary", "Whiteboard library")}</NavLink>
         </>
       )}
       {(isAdmin || isAssistant) && (

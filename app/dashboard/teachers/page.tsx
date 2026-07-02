@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { ensureTeacherHomepageOrderColumn, getTeachersFeatureEnabled, getUsersByRole } from "@/lib/db";
+import { teacherCanViewStatistics } from "@/lib/teacher-statistics";
 import { getServerTranslator } from "@/lib/i18n/server";
 import { TeachersAdminClient } from "./TeachersAdminClient";
 
@@ -35,6 +36,9 @@ export default async function TeachersAdminPage() {
     homepageOrder: normalizeTeacherHomepageOrder(
       (u as { teacher_homepage_order?: unknown }).teacher_homepage_order,
     ),
+    country: u.country ?? null,
+    learningTrack: u.learning_track ?? null,
+    statisticsEnabled: teacherCanViewStatistics(u),
   }));
 
   return (

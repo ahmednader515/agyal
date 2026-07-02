@@ -3,7 +3,8 @@ import { Suspense } from "react";
 import { preload } from "react-dom";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getHomepageSettings, getPublishedCourseSlugsByIds } from "@/lib/db";
+import { getHomepageSettings, getCoursesPublished, getPublishedCourseSlugsByIds } from "@/lib/db";
+import { filterCoursesForStudentProfile, getStudentClassificationContext } from "@/lib/student-classification";
 import { HeroScrollCue } from "@/components/HeroScrollCue";
 import { HeroShootingStar } from "@/components/HeroShootingStar";
 import { HomeHeroImageSlider } from "@/components/HomeHeroImageSlider";
@@ -20,9 +21,10 @@ import { pickLocalizedText } from "@/lib/i18n/localized-field";
 export default async function HomePage() {
   const [t, locale] = await Promise.all([getServerTranslator(), getLocaleFromCookie()]);
 
-  const [session, homepageSettings] = await Promise.all([
+  const [session, homepageSettings, studentCtx] = await Promise.all([
     getServerSession(authOptions),
     getHomepageSettings(),
+    getStudentClassificationContext(),
   ]);
 
   const heroBg = resolveHeroBgGradient(homepageSettings);
@@ -44,9 +46,16 @@ export default async function HomePage() {
     .map((s) => (s.courseId ? String(s.courseId).trim() : ""))
     .filter(Boolean);
   let sliderCourseSlugMap = new Map<string, string>();
+  let visibleSliderCourseIds: Set<string> | null = null;
   if (sliderCourseIds.length > 0) {
     try {
       sliderCourseSlugMap = await getPublishedCourseSlugsByIds(sliderCourseIds);
+      if (studentCtx) {
+        const published = await getCoursesPublished(false);
+        visibleSliderCourseIds = new Set(
+          filterCoursesForStudentProfile(published, studentCtx.profile).map((c) => c.id),
+        );
+      }
     } catch {
       sliderCourseSlugMap = new Map();
     }
@@ -56,6 +65,7 @@ export default async function HomePage() {
       const src = slot.src ? String(slot.src).trim() : "";
       if (!src) return null;
       const cid = slot.courseId ? String(slot.courseId).trim() : "";
+      if (cid && visibleSliderCourseIds && !visibleSliderCourseIds.has(cid)) return null;
       const slug = cid ? sliderCourseSlugMap.get(cid) : undefined;
       const href = slug ? `/courses/${slug}` : null;
       return { src, href };

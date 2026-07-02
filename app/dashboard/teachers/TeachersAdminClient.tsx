@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useT } from "@/components/LocaleProvider";
+import { useLocale, useT } from "@/components/LocaleProvider";
 import { useDashboardTable } from "@/lib/i18n/dashboard-table";
 import { fillMessage } from "@/lib/i18n/interpolate";
+import { ARAB_COUNTRIES, LEARNING_TRACKS, type LearningTrack } from "@/lib/student-signup";
 
 export type TeacherRow = {
   id: string;
@@ -14,6 +15,9 @@ export type TeacherRow = {
   avatarUrl: string | null;
   phone: string | null;
   homepageOrder: number | null;
+  country: string | null;
+  learningTrack: string | null;
+  statisticsEnabled: boolean;
 };
 
 type ApiTeacher = {
@@ -24,6 +28,9 @@ type ApiTeacher = {
   teacher_subject?: string | null;
   teacher_avatar_url?: string | null;
   teacher_homepage_order?: number | null;
+  country?: string | null;
+  learning_track?: string | null;
+  teacher_statistics_enabled?: boolean;
 };
 
 function normalizeHomepageOrder(v: unknown): number | null {
@@ -51,6 +58,9 @@ function mapApiToRows(list: ApiTeacher[]): TeacherRow[] {
     avatarUrl: t.teacher_avatar_url ?? null,
     phone: t.student_number ?? null,
     homepageOrder: normalizeHomepageOrder(t.teacher_homepage_order),
+    country: t.country ?? null,
+    learningTrack: t.learning_track ?? null,
+    statisticsEnabled: t.teacher_statistics_enabled !== false,
   }));
 }
 
@@ -63,11 +73,13 @@ export function TeachersAdminClient({
 }) {
   const router = useRouter();
   const t = useT();
+  const locale = useLocale();
   const Ta = "dashboard.teachersAdmin";
   const { dir, thClass } = useDashboardTable();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [teachers, setTeachers] = useState(initialTeachers);
   const [toggleLoading, setToggleLoading] = useState(false);
+  const [statisticsToggleId, setStatisticsToggleId] = useState<string | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -77,6 +89,9 @@ export function TeachersAdminClient({
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [subject, setSubject] = useState("");
+  const [country, setCountry] = useState("EG");
+  const [learningTrack, setLearningTrack] = useState<LearningTrack | "">("");
+  const [statisticsEnabled, setStatisticsEnabled] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [createImageUploading, setCreateImageUploading] = useState(false);
   const [createImageError, setCreateImageError] = useState("");
@@ -88,6 +103,9 @@ export function TeachersAdminClient({
   const [editPhone, setEditPhone] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editSubject, setEditSubject] = useState("");
+  const [editCountry, setEditCountry] = useState("EG");
+  const [editLearningTrack, setEditLearningTrack] = useState<LearningTrack | "">("");
+  const [editStatisticsEnabled, setEditStatisticsEnabled] = useState(true);
   const [editAvatarUrl, setEditAvatarUrl] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editImageUploading, setEditImageUploading] = useState(false);
@@ -130,6 +148,30 @@ export function TeachersAdminClient({
     router.refresh();
   }
 
+  async function patchTeacherStatistics(teacherId: string, next: boolean) {
+    setError("");
+    setStatisticsToggleId(teacherId);
+    const res = await fetch(`/api/dashboard/teachers/${encodeURIComponent(teacherId)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teacherStatisticsEnabled: next }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setStatisticsToggleId(null);
+    if (!res.ok) {
+      setError(data.error ?? t(`${Ta}.patchFailed`));
+      return;
+    }
+    setTeachers((prev) =>
+      prev.map((row) => (row.id === teacherId ? { ...row, statisticsEnabled: next } : row)),
+    );
+    setSuccess(
+      next ? t(`${Ta}.teacherStatisticsEnabledSuccess`) : t(`${Ta}.teacherStatisticsDisabledSuccess`),
+    );
+    router.refresh();
+  }
+
   async function createTeacher(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -146,6 +188,9 @@ export function TeachersAdminClient({
         phone: phone.trim() || undefined,
         teacherSubject: subject.trim() || null,
         teacherAvatarUrl: avatarUrl.trim() || null,
+        country,
+        learningTrack,
+        teacherStatisticsEnabled: statisticsEnabled,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -160,6 +205,9 @@ export function TeachersAdminClient({
     setPhone("");
     setPassword("");
     setSubject("");
+    setCountry("EG");
+    setLearningTrack("");
+    setStatisticsEnabled(true);
     setAvatarUrl("");
     setCreateImageError("");
     await reloadTeachers();
@@ -175,6 +223,9 @@ export function TeachersAdminClient({
     setEditPhone(row.phone ?? "");
     setEditPassword("");
     setEditSubject(row.subject ?? "");
+    setEditCountry(row.country ?? "EG");
+    setEditLearningTrack((row.learningTrack as LearningTrack) ?? "");
+    setEditStatisticsEnabled(row.statisticsEnabled);
     setEditAvatarUrl(row.avatarUrl ?? "");
     setEditImageError("");
     setEditOpen(true);
@@ -199,6 +250,9 @@ export function TeachersAdminClient({
       phone: editPhone.trim(),
       teacherSubject: editSubject.trim() || null,
       teacherAvatarUrl: editAvatarUrl.trim() || null,
+      country: editCountry,
+      learningTrack: editLearningTrack,
+      teacherStatisticsEnabled: editStatisticsEnabled,
     };
     if (editPassword.trim()) body.password = editPassword.trim();
     const res = await fetch(`/api/dashboard/teachers/${encodeURIComponent(editingId)}`, {
@@ -382,6 +436,41 @@ export function TeachersAdminClient({
                   className="mt-1 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-[var(--color-foreground)]"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Ta}.labelCountry`)}</label>
+                <select
+                  required
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  className="mt-1 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-[var(--color-foreground)]"
+                >
+                  {ARAB_COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {locale === "ar" ? c.labelAr : c.labelEn}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <p className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Ta}.labelLearningTrack`)}</p>
+                <div className="mt-2 space-y-2">
+                  {LEARNING_TRACKS.map((track) => (
+                    <label key={track} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] p-2">
+                      <input
+                        type="radio"
+                        name="teacher_learning_track"
+                        className="accent-[var(--color-primary)]"
+                        checked={learningTrack === track}
+                        onChange={() => setLearningTrack(track)}
+                        required
+                      />
+                      <span className="text-sm text-[var(--color-foreground)]">
+                        {track === "manhaj" ? t(`${Ta}.learningTrackManhaj`) : t(`${Ta}.learningTrackCourses`)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div className="sm:col-span-2">
                 <span className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Ta}.avatarOptional`)}</span>
                 <p className="mt-1 text-xs text-[var(--color-muted)]">{t(`${Ta}.avatarHintCreate`)}</p>
@@ -420,6 +509,24 @@ export function TeachersAdminClient({
                 {createImageError ? (
                   <p className="mt-1 text-sm text-red-600 dark:text-red-400">{createImageError}</p>
                 ) : null}
+              </div>
+              <div className="sm:col-span-2">
+                <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 accent-[var(--color-primary)]"
+                    checked={statisticsEnabled}
+                    onChange={(e) => setStatisticsEnabled(e.target.checked)}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-[var(--color-foreground)]">
+                      {t(`${Ta}.labelTeacherStatistics`)}
+                    </span>
+                    <span className="mt-1 block text-xs text-[var(--color-muted)]">
+                      {t(`${Ta}.labelTeacherStatisticsHint`)}
+                    </span>
+                  </span>
+                </label>
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Ta}.labelPassword`)}</label>
@@ -496,13 +603,14 @@ export function TeachersAdminClient({
                     <th className={`px-4 py-3 ${thClass} font-medium`}>{t(`${Ta}.colName`)}</th>
                     <th className={`px-4 py-3 ${thClass} font-medium`}>{t(`${Ta}.colEmail`)}</th>
                     <th className={`px-4 py-3 ${thClass} font-medium`}>{t(`${Ta}.colSubject`)}</th>
+                    <th className={`px-4 py-3 ${thClass} font-medium`}>{t(`${Ta}.colStatistics`)}</th>
                     <th className={`px-4 py-3 ${thClass} font-medium`}>{t(`${Ta}.colActions`)}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {teachers.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-[var(--color-muted)]">
+                      <td colSpan={6} className="px-4 py-8 text-center text-[var(--color-muted)]">
                         {t(`${Ta}.emptyTeachers`)}
                       </td>
                     </tr>
@@ -522,6 +630,22 @@ export function TeachersAdminClient({
                         <td className="px-4 py-3 font-medium">{row.name}</td>
                         <td className="px-4 py-3 text-[var(--color-muted)]">{row.email}</td>
                         <td className="px-4 py-3 text-[var(--color-muted)]">{row.subject ?? "—"}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            disabled={statisticsToggleId === row.id}
+                            onClick={() => void patchTeacherStatistics(row.id, !row.statisticsEnabled)}
+                            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                              row.statisticsEnabled
+                                ? "bg-[var(--color-primary)]/15 text-[var(--color-primary)]"
+                                : "bg-[var(--color-border)]/50 text-[var(--color-muted)]"
+                            } disabled:opacity-50`}
+                          >
+                            {row.statisticsEnabled
+                              ? t(`${Ta}.statisticsVisible`)
+                              : t(`${Ta}.statisticsHidden`)}
+                          </button>
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-2">
                             <button
@@ -617,6 +741,59 @@ export function TeachersAdminClient({
                   maxLength={500}
                   className="mt-1 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-[var(--color-foreground)]"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Ta}.labelCountry`)}</label>
+                <select
+                  required
+                  value={editCountry}
+                  onChange={(e) => setEditCountry(e.target.value)}
+                  className="mt-1 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-[var(--color-foreground)]"
+                >
+                  {ARAB_COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {locale === "ar" ? c.labelAr : c.labelEn}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <p className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Ta}.labelLearningTrack`)}</p>
+                <div className="mt-2 space-y-2">
+                  {LEARNING_TRACKS.map((track) => (
+                    <label key={track} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] p-2">
+                      <input
+                        type="radio"
+                        name="edit_teacher_learning_track"
+                        className="accent-[var(--color-primary)]"
+                        checked={editLearningTrack === track}
+                        onChange={() => setEditLearningTrack(track)}
+                        required
+                      />
+                      <span className="text-sm text-[var(--color-foreground)]">
+                        {track === "manhaj" ? t(`${Ta}.learningTrackManhaj`) : t(`${Ta}.learningTrackCourses`)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1 accent-[var(--color-primary)]"
+                    checked={editStatisticsEnabled}
+                    onChange={(e) => setEditStatisticsEnabled(e.target.checked)}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-[var(--color-foreground)]">
+                      {t(`${Ta}.labelTeacherStatistics`)}
+                    </span>
+                    <span className="mt-1 block text-xs text-[var(--color-muted)]">
+                      {t(`${Ta}.labelTeacherStatisticsHint`)}
+                    </span>
+                  </span>
+                </label>
               </div>
               <div>
                 <span className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Ta}.avatarOptional`)}</span>

@@ -56,6 +56,8 @@ CREATE INDEX IF NOT EXISTS "Course_category_id_idx" ON "Course"(category_id);
 CREATE INDEX IF NOT EXISTS "Course_created_by_id_idx" ON "Course"(created_by_id);
 ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS description_en TEXT;
 ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS short_desc_en VARCHAR(300);
+ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS country TEXT;
+ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS learning_track TEXT;
 
 -- 4) الدروس
 CREATE TABLE IF NOT EXISTS "Lesson" (
@@ -209,6 +211,8 @@ CREATE INDEX IF NOT EXISTS "LiveStream_scheduled_at_idx" ON "LiveStream"(schedul
 ALTER TABLE "User"
   ADD COLUMN IF NOT EXISTS student_number      TEXT,
   ADD COLUMN IF NOT EXISTS guardian_number     TEXT,
+  ADD COLUMN IF NOT EXISTS country             TEXT,
+  ADD COLUMN IF NOT EXISTS learning_track      TEXT,
   ADD COLUMN IF NOT EXISTS current_session_id  TEXT;
 
 -- إضافة وقت الاختبار بالدقائق للاختبارات (لو الجدول قديم)

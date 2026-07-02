@@ -3,7 +3,6 @@ import {
   getAllowedLessonIdsForUserCourse,
   getAllowedQuizIdsForUserCourse,
   hasFullCourseAccessAsStudent,
-  userHasWhiteboardAccessForCourse,
 } from "@/lib/db";
 import type { LiveStream } from "@/lib/types";
 
@@ -63,11 +62,7 @@ export async function getLiveStreamWhiteboardAccess(
       return { allowed: false };
     }
 
-    const hasWhiteboard = await userHasWhiteboardAccessForCourse(user.id, courseId);
-    if (hasWhiteboard) {
-      return { allowed: true, mode: "viewer" };
-    }
-    return { allowed: false };
+    return { allowed: true, mode: "viewer" };
   }
 
   return { allowed: false };

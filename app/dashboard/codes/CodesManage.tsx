@@ -40,7 +40,6 @@ export function CodesManage({ courseOptions }: { courseOptions: { id: string; ti
   const [courseQuizzes, setCourseQuizzes] = useState<Array<{ id: string; title: string }>>([]);
   const [quizzesLoading, setQuizzesLoading] = useState(false);
   const [selectedQuizIds, setSelectedQuizIds] = useState<Set<string>>(new Set());
-  const [createGrantsWhiteboard, setCreateGrantsWhiteboard] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -179,15 +178,13 @@ export function CodesManage({ courseOptions }: { courseOptions: { id: string; ti
         body: JSON.stringify({
           courseId: createCourseId.trim(),
           count,
-          grantsWhiteboard: createGrantsWhiteboard,
-          lessonIds: createGrantsWhiteboard || selectedLessonIds.size === 0 ? undefined : Array.from(selectedLessonIds),
-          quizIds: createGrantsWhiteboard || selectedQuizIds.size === 0 ? undefined : Array.from(selectedQuizIds),
+          lessonIds: selectedLessonIds.size === 0 ? undefined : Array.from(selectedLessonIds),
+          quizIds: selectedQuizIds.size === 0 ? undefined : Array.from(selectedQuizIds),
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? t(`${M}.generateFailed`));
       setCreateCount(5);
-      setCreateGrantsWhiteboard(false);
       setSelectedLessonIds(new Set());
       setSelectedQuizIds(new Set());
       router.refresh();
@@ -334,27 +331,9 @@ export function CodesManage({ courseOptions }: { courseOptions: { id: string; ti
             <label className="block text-sm font-medium text-[var(--color-foreground)]">
               {t(`${M}.labelScopeOptional`)}
             </label>
-            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-[var(--color-foreground)]">
-              <input
-                type="checkbox"
-                checked={createGrantsWhiteboard}
-                onChange={(e) => {
-                  setCreateGrantsWhiteboard(e.target.checked);
-                  if (e.target.checked) {
-                    setSelectedLessonIds(new Set());
-                    setSelectedQuizIds(new Set());
-                  }
-                }}
-                className="rounded border-[var(--color-border)]"
-              />
-              {t(`${M}.grantsWhiteboardLabel`)}
-            </label>
-            <p className="mt-1 text-xs text-[var(--color-muted)]">{t(`${M}.grantsWhiteboardHint`)}</p>
             <div className="mt-1 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] p-2 text-sm">
               {!createCourseId ? (
                 <span className="text-[var(--color-muted)]">{t(`${M}.chooseCourseHint`)}</span>
-              ) : createGrantsWhiteboard ? (
-                <span className="text-[var(--color-muted)]">{t(`${M}.whiteboardScopeActive`)}</span>
               ) : (
                 <div className="space-y-3">
                   <p className="text-xs text-[var(--color-muted)]">{t(`${M}.scopeIntro`)}</p>

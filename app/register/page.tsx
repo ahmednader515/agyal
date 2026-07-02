@@ -4,15 +4,18 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import LoginBackground from "@/app/login/LoginBackground";
-import { useT } from "@/components/LocaleProvider";
+import { useLocale, useT } from "@/components/LocaleProvider";
+import { ARAB_COUNTRIES, type LearningTrack } from "@/lib/student-signup";
 
 export default function RegisterPage() {
   const t = useT();
+  const locale = useLocale();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
-  const [guardianNumber, setGuardianNumber] = useState("");
+  const [country, setCountry] = useState("EG");
+  const [learningTrack, setLearningTrack] = useState<LearningTrack | "">("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -25,6 +28,10 @@ export default function RegisterPage() {
       setError(t("auth.register.phoneMustBe11", "Phone number must be 11 digits"));
       return;
     }
+    if (!learningTrack) {
+      setError(t("auth.register.learningTrackRequired", "Choose curricula or courses"));
+      return;
+    }
     setLoading(true);
     const res = await fetch("/api/auth/signup", {
       method: "POST",
@@ -33,8 +40,9 @@ export default function RegisterPage() {
         email,
         password,
         name,
-        student_number: studentNumber.trim() || undefined,
-        guardian_number: guardianNumber.trim() || undefined,
+        student_number: studentNumber.trim(),
+        country,
+        learning_track: learningTrack,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -120,19 +128,57 @@ export default function RegisterPage() {
           </div>
           <div>
             <label
-              htmlFor="guardian_number"
+              htmlFor="country"
               className="block text-sm font-medium text-[var(--color-foreground)]"
             >
-              {t("auth.register.parentPhoneLabel", "Guardian phone number")}
+              {t("auth.register.countryLabel", "Country")}
             </label>
-            <input
-              id="guardian_number"
-              type="text"
-              value={guardianNumber}
-              onChange={(e) => setGuardianNumber(e.target.value)}
+            <select
+              id="country"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              required
               className="mt-1 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-[var(--color-foreground)] focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
-              placeholder={t("auth.register.parentPhonePlaceholder", "Guardian phone number")}
-            />
+            >
+              {ARAB_COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {locale === "ar" ? c.labelAr : c.labelEn}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <p className="block text-sm font-medium text-[var(--color-foreground)]">
+              {t("auth.register.learningTrackLabel", "What are you looking for?")}
+            </p>
+            <div className="mt-2 space-y-2">
+              <label className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] p-3">
+                <input
+                  type="radio"
+                  name="learning_track"
+                  className="accent-[var(--color-primary)]"
+                  checked={learningTrack === "manhaj"}
+                  onChange={() => setLearningTrack("manhaj")}
+                  required
+                />
+                <span className="text-sm text-[var(--color-foreground)]">
+                  {t("auth.register.learningTrackManhaj", "Curricula")}
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] p-3">
+                <input
+                  type="radio"
+                  name="learning_track"
+                  className="accent-[var(--color-primary)]"
+                  checked={learningTrack === "courses"}
+                  onChange={() => setLearningTrack("courses")}
+                  required
+                />
+                <span className="text-sm text-[var(--color-foreground)]">
+                  {t("auth.register.learningTrackCourses", "Courses")}
+                </span>
+              </label>
+            </div>
           </div>
           <div>
             <label

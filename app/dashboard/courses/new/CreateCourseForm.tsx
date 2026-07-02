@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useT } from "@/components/LocaleProvider";
 import { CourseFormSaveOverlay } from "../CourseFormSaveOverlay";
+import { CourseClassificationFields } from "../CourseClassificationFields";
+import type { LearningTrack } from "@/lib/student-signup";
 
 type CategoryOption = { id: string; name: string; nameAr?: string | null };
 type LessonRow = { title: string; videoUrl: string; content: string; pdfUrl: string; acceptsHomework: boolean };
@@ -12,7 +14,13 @@ type QuestionRow = { type: "MULTIPLE_CHOICE" | "TRUE_FALSE"; questionText: strin
 type QuizRow = { title: string; timeLimitMinutes: string; questions: QuestionRow[] };
 type ContentOrderEntry = { type: "lesson"; index: number } | { type: "quiz"; index: number };
 
-export function CreateCourseForm() {
+type Props = {
+  role: "ADMIN" | "ASSISTANT_ADMIN" | "TEACHER";
+  teacherCountry?: string | null;
+  teacherLearningTrack?: string | null;
+};
+
+export function CreateCourseForm({ role, teacherCountry, teacherLearningTrack }: Props) {
   const router = useRouter();
   const t = useT();
   const Cf = "dashboard.courseForm";
@@ -32,6 +40,8 @@ export function CreateCourseForm() {
     categoryId: "",
     categoryNameAr: "",
     categoryNameEn: "",
+    country: "EG",
+    learningTrack: "" as LearningTrack | "",
   });
   const [lessons, setLessons] = useState<LessonRow[]>([{ title: "", videoUrl: "", content: "", pdfUrl: "", acceptsHomework: false }]);
 
@@ -254,6 +264,9 @@ export function CreateCourseForm() {
       ...(form.categoryNameAr.trim() || form.categoryNameEn.trim()
         ? { categoryNameAr: form.categoryNameAr.trim(), categoryNameEn: form.categoryNameEn.trim() }
         : form.categoryId ? { categoryId: form.categoryId } : {}),
+      ...(role !== "TEACHER"
+        ? { country: form.country, learningTrack: form.learningTrack }
+        : {}),
       lessons: validLessons.map((l) => ({
           title: l.title.trim(),
           videoUrl: l.videoUrl.trim() || undefined,
@@ -363,6 +376,15 @@ export function CreateCourseForm() {
               className="mt-2 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
             />
           </div>
+          <CourseClassificationFields
+            role={role}
+            country={form.country}
+            learningTrack={form.learningTrack}
+            onCountryChange={(value) => setForm((f) => ({ ...f, country: value }))}
+            onLearningTrackChange={(value) => setForm((f) => ({ ...f, learningTrack: value }))}
+            teacherCountry={teacherCountry}
+            teacherLearningTrack={teacherLearningTrack}
+          />
           <div>
             <label className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Cf}.categoryOptional`)}</label>
             <p className="mt-1 text-xs text-[var(--color-muted)]">{t(`${Cf}.categoryHelpChooseOrNew`)}</p>

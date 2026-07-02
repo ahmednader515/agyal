@@ -1,5 +1,26 @@
 import "dotenv/config";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import type { FinalizeHandler, FinalizeHandlerArguments, FinalizeHandlerOutput, MetadataBearer } from "@smithy/types";
+
+type AwsHttpRequest = {
+  headers?: Record<string, string | undefined>;
+};
+
+const stripR2ChecksumHeadersMiddleware =
+  <Input extends object, Output extends MetadataBearer>(next: FinalizeHandler<Input, Output>) =>
+  async (args: FinalizeHandlerArguments<Input>): Promise<FinalizeHandlerOutput<Output>> => {
+    const request = args.request as AwsHttpRequest;
+    if (request.headers) {
+      delete request.headers["x-amz-checksum-crc32"];
+      delete request.headers["x-amz-checksum-crc32c"];
+      delete request.headers["x-amz-checksum-sha1"];
+      delete request.headers["x-amz-checksum-sha256"];
+      delete request.headers["x-amz-sdk-checksum-algorithm"];
+      delete request.headers["x-amz-trailer"];
+      delete request.headers["x-amz-decoded-content-length"];
+    }
+    return next(args);
+  };
 
 function getR2Config() {
   return {
@@ -14,12 +35,28 @@ function getR2Config() {
 function getClient(): S3Client | null {
   const { accountId, accessKeyId, secretAccessKey } = getR2Config();
   if (!accountId || !accessKeyId || !secretAccessKey) return null;
-  return new S3Client({
+  const client = new S3Client({
     region: "auto",
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
     credentials: { accessKeyId, secretAccessKey },
     forcePathStyle: true,
+    // Cloudflare R2 rejects the default request checksums added by
+    // @aws-sdk/client-s3 v3.729+ (aws-chunked/CRC32 trailers) with a 401
+    // "Unauthorized" signature error. Only send checksums when required.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
+
+  client.middlewareStack.addRelativeTo(
+    stripR2ChecksumHeadersMiddleware,
+    {
+      name: "stripR2ChecksumHeadersMiddleware",
+      relation: "before",
+      toMiddleware: "awsAuthMiddleware",
+    },
+  );
+
+  return client;
 }
 
 /**
@@ -42,6 +79,7 @@ export async function uploadToR2(
       Key: key,
       Body: buffer,
       ContentType: contentType,
+      ContentLength: buffer.byteLength,
     })
   );
 

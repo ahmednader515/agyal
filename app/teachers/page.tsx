@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getTeachersFeatureEnabled, listTeachersForHomepage } from "@/lib/db";
+import { filterTeachersForStudentProfile, getStudentClassificationContext } from "@/lib/student-classification";
 import { TeachersBrowseClient } from "./TeachersBrowseClient";
 
 export const metadata = {
@@ -12,7 +13,13 @@ export default async function TeachersPage() {
   if (!enabled) {
     redirect("/");
   }
-  const teachers = await listTeachersForHomepage().catch(() => []);
+  const [teachersRaw, studentCtx] = await Promise.all([
+    listTeachersForHomepage().catch(() => []),
+    getStudentClassificationContext(),
+  ]);
+  const teachers = studentCtx
+    ? filterTeachersForStudentProfile(teachersRaw, studentCtx.profile)
+    : teachersRaw;
 
   return <TeachersBrowseClient initialTeachers={teachers} />;
 }

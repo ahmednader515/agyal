@@ -2,6 +2,7 @@ import "dotenv/config";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { neon } from "@neondatabase/serverless";
+import { courseVisibleToStudent } from "@/lib/student-signup";
 import type {
   User,
   UserRole,
@@ -212,6 +213,7 @@ export async function ensureTeacherAccountDbSchema(): Promise<void> {
     }
 
     await ensureTeacherHomepageOrderColumn().catch(() => {});
+    await ensureTeacherStatisticsEnabledUserColumn().catch(() => {});
 
     try {
       const meta = await sql`
@@ -270,6 +272,28 @@ export async function ensureTeacherHomepageOrderColumn(): Promise<void> {
 }
 
 /** عمود كود حقوق الطبع والنشر (فريد لكل طالب) */
+export async function ensureStudentSignupColumns(): Promise<void> {
+  return ensureOnce("ensureStudentSignupColumns", async () => {
+    try {
+      await sql`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS country TEXT`;
+      await sql`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS learning_track TEXT`;
+    } catch {
+      /* */
+    }
+  });
+}
+
+export async function ensureCourseClassificationColumns(): Promise<void> {
+  return ensureOnce("ensureCourseClassificationColumns", async () => {
+    try {
+      await sql`ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS country TEXT`;
+      await sql`ALTER TABLE "Course" ADD COLUMN IF NOT EXISTS learning_track TEXT`;
+    } catch {
+      /* */
+    }
+  });
+}
+
 export async function ensureCopyrightCodeColumn(): Promise<void> {
   return ensureOnce("ensureCopyrightCodeColumn", async () => {
     try {
@@ -340,33 +364,38 @@ export async function createUser(data: {
   role?: UserRole;
   student_number?: string | null;
   guardian_number?: string | null;
+  country?: string | null;
+  learning_track?: string | null;
   teacher_subject?: string | null;
   teacher_avatar_url?: string | null;
+  teacher_statistics_enabled?: boolean;
 }): Promise<User> {
   const id = generateId();
   let usedFallbackInsertWithoutTeacherCols = false;
   if (data.role === "TEACHER") {
     await ensureTeacherAccountDbSchema();
   }
+  await ensureStudentSignupColumns().catch(() => {});
   await ensureCopyrightCodeColumn().catch(() => {});
   const studentCopyright =
     (data.role ?? "STUDENT") === "STUDENT" ? await allocateUniqueCopyrightCode() : null;
   try {
     await sql`
-      INSERT INTO "User" (id, email, password_hash, name, role, student_number, guardian_number, teacher_subject, teacher_avatar_url, copyright_code)
-      VALUES (${id}, ${data.email}, ${data.password_hash}, ${data.name}, ${data.role ?? "STUDENT"}, ${data.student_number ?? null}, ${data.guardian_number ?? null}, ${data.teacher_subject ?? null}, ${data.teacher_avatar_url ?? null}, ${studentCopyright})
+      INSERT INTO "User" (id, email, password_hash, name, role, student_number, guardian_number, country, learning_track, teacher_subject, teacher_avatar_url, teacher_statistics_enabled, copyright_code)
+      VALUES (${id}, ${data.email}, ${data.password_hash}, ${data.name}, ${data.role ?? "STUDENT"}, ${data.student_number ?? null}, ${data.guardian_number ?? null}, ${data.country ?? null}, ${data.learning_track ?? null}, ${data.teacher_subject ?? null}, ${data.teacher_avatar_url ?? null}, ${data.role === "TEACHER" ? data.teacher_statistics_enabled !== false : true}, ${studentCopyright})
     `;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const missingTeacherCols =
       msg.includes("teacher_subject") ||
       msg.includes("teacher_avatar_url") ||
+      msg.includes("teacher_statistics_enabled") ||
       (msg.includes("column") && msg.includes("does not exist") && msg.includes("teacher"));
     if (missingTeacherCols) {
       usedFallbackInsertWithoutTeacherCols = true;
       await sql`
-        INSERT INTO "User" (id, email, password_hash, name, role, student_number, guardian_number, copyright_code)
-        VALUES (${id}, ${data.email}, ${data.password_hash}, ${data.name}, ${data.role ?? "STUDENT"}, ${data.student_number ?? null}, ${data.guardian_number ?? null}, ${studentCopyright})
+        INSERT INTO "User" (id, email, password_hash, name, role, student_number, guardian_number, country, learning_track, copyright_code)
+        VALUES (${id}, ${data.email}, ${data.password_hash}, ${data.name}, ${data.role ?? "STUDENT"}, ${data.student_number ?? null}, ${data.guardian_number ?? null}, ${data.country ?? null}, ${data.learning_track ?? null}, ${studentCopyright})
       `;
     } else {
       throw e;
@@ -376,6 +405,7 @@ export async function createUser(data: {
     await updateUser(id, {
       teacher_subject: data.teacher_subject ?? null,
       teacher_avatar_url: data.teacher_avatar_url ?? null,
+      teacher_statistics_enabled: data.teacher_statistics_enabled !== false,
     }).catch(() => {
       /* أعمدة المدرس غير متوفرة بعد */
     });
@@ -397,6 +427,9 @@ export async function updateUser(
     guardian_number?: string | null;
     teacher_subject?: string | null;
     teacher_avatar_url?: string | null;
+    country?: string | null;
+    learning_track?: string | null;
+    teacher_statistics_enabled?: boolean;
   }
 ): Promise<void> {
   if (data.name !== undefined) await sql`UPDATE "User" SET name = ${data.name}, updated_at = NOW() WHERE id = ${id}`;
@@ -416,6 +449,22 @@ export async function updateUser(
   if (data.teacher_avatar_url !== undefined) {
     try {
       await sql`UPDATE "User" SET teacher_avatar_url = ${data.teacher_avatar_url}, updated_at = NOW() WHERE id = ${id}`;
+    } catch {
+      /* عمود غير موجود */
+    }
+  }
+  if (data.country !== undefined) {
+    await ensureStudentSignupColumns().catch(() => {});
+    await sql`UPDATE "User" SET country = ${data.country}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.learning_track !== undefined) {
+    await ensureStudentSignupColumns().catch(() => {});
+    await sql`UPDATE "User" SET learning_track = ${data.learning_track}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.teacher_statistics_enabled !== undefined) {
+    await ensureTeacherStatisticsEnabledUserColumn().catch(() => {});
+    try {
+      await sql`UPDATE "User" SET teacher_statistics_enabled = ${data.teacher_statistics_enabled}, updated_at = NOW() WHERE id = ${id}`;
     } catch {
       /* عمود غير موجود */
     }
@@ -864,6 +913,7 @@ const HOMEPAGE_DEFAULTS: HomepageSetting = {
   teachersEnabled: false,
   subscriptionsEnabled: false,
   storeEnabled: false,
+  whiteboardLibraryEnabled: false,
   storeSectionTitle: HOMEPAGE_DEFAULT_STORE_SECTION_TITLE_AR,
   storeSectionTitleEn: null,
   storeSectionDescription: HOMEPAGE_DEFAULT_STORE_SECTION_DESCRIPTION_AR,
@@ -930,6 +980,16 @@ const HOMEPAGE_DEFAULTS: HomepageSetting = {
   addBalanceWaitingNote:
     "بعد إرسال صورة التأكيد، يكون رصيدك في انتظار وصوله إلى حسابك. سيتم إضافة الرصيد خلال أقرب وقت.",
   addBalanceWaitingNoteEn: null,
+  addBalancePaypalMethodTitle: "PayPal",
+  addBalancePaypalMethodTitleEn: null,
+  addBalancePaypalTransferInstruction: "أرسل المبلغ المطلوب إلى حساب PayPal التالي:",
+  addBalancePaypalTransferInstructionEn: null,
+  addBalancePaypalAccount: "",
+  addBalanceInstapayMethodTitle: "InstaPay",
+  addBalanceInstapayMethodTitleEn: null,
+  addBalanceInstapayTransferInstruction: "حوّل المبلغ المطلوب إلى عنوان InstaPay التالي:",
+  addBalanceInstapayTransferInstructionEn: null,
+  addBalanceInstapayAccount: "",
   copyrightOverlayStyle: "floating",
 };
 
@@ -1093,6 +1153,16 @@ async function ensureHomepageHeroTemplateColumns(): Promise<void> {
   });
 }
 
+async function ensureTeacherStatisticsEnabledUserColumn(): Promise<void> {
+  return ensureOnce("ensureTeacherStatisticsEnabledUserColumn", async () => {
+    try {
+      await sql`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS teacher_statistics_enabled BOOLEAN NOT NULL DEFAULT true`;
+    } catch {
+      /* DDL غير متاح */
+    }
+  });
+}
+
 /** يضمن وجود عمود teachers_enabled إن كان جدول HomepageSetting موجوداً ولم يُشغَّل سكربت SQL بعد */
 async function ensureHomepageTeachersEnabledColumn(): Promise<void> {
   return ensureOnce("ensureHomepageTeachersEnabledColumn", async () => {
@@ -1118,6 +1188,16 @@ async function ensureHomepageStoreEnabledColumn(): Promise<void> {
   return ensureOnce("ensureHomepageStoreEnabledColumn", async () => {
     try {
       await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS store_enabled BOOLEAN NOT NULL DEFAULT false`;
+    } catch {
+      /* DDL غير متاح */
+    }
+  });
+}
+
+async function ensureHomepageWhiteboardLibraryEnabledColumn(): Promise<void> {
+  return ensureOnce("ensureHomepageWhiteboardLibraryEnabledColumn", async () => {
+    try {
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS whiteboard_library_enabled BOOLEAN NOT NULL DEFAULT false`;
     } catch {
       /* DDL غير متاح */
     }
@@ -1177,6 +1257,16 @@ async function ensureAddBalanceSettingsColumns(): Promise<void> {
       await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_whatsapp_number TEXT`;
       await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_whatsapp_button_text TEXT`;
       await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_waiting_note TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_paypal_method_title TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_paypal_method_title_en TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_paypal_transfer_instruction TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_paypal_transfer_instruction_en TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_paypal_account TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_instapay_method_title TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_instapay_method_title_en TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_instapay_transfer_instruction TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_instapay_transfer_instruction_en TEXT`;
+      await sql`ALTER TABLE "HomepageSetting" ADD COLUMN IF NOT EXISTS add_balance_instapay_account TEXT`;
     } catch {
       /* DDL غير متاح */
     }
@@ -1219,19 +1309,25 @@ export async function setTeachersFeatureEnabled(enabled: boolean): Promise<void>
 
 /** مدرسون يظهرون في الصفحة العامة (لهم كورس منشور على الأقل) */
 export async function listTeachersPublic(categoryId?: string | null): Promise<
-  Array<{ id: string; name: string; teacherSubject: string | null; teacherAvatarUrl: string | null }>
+  Array<{
+    id: string;
+    name: string;
+    teacherSubject: string | null;
+    teacherAvatarUrl: string | null;
+    country: string | null;
+  }>
 > {
   const cat = categoryId?.trim() || null;
   const rows = cat
     ? await sql`
-        SELECT DISTINCT u.id, u.name, u.teacher_subject, u.teacher_avatar_url
+        SELECT DISTINCT u.id, u.name, u.teacher_subject, u.teacher_avatar_url, u.country
         FROM "User" u
         INNER JOIN "Course" c ON c.created_by_id = u.id AND c.is_published = true
         WHERE u.role = 'TEACHER' AND c.category_id = ${cat}
         ORDER BY u.name ASC
       `
     : await sql`
-        SELECT DISTINCT u.id, u.name, u.teacher_subject, u.teacher_avatar_url
+        SELECT DISTINCT u.id, u.name, u.teacher_subject, u.teacher_avatar_url, u.country
         FROM "User" u
         INNER JOIN "Course" c ON c.created_by_id = u.id AND c.is_published = true
         WHERE u.role = 'TEACHER'
@@ -1242,6 +1338,7 @@ export async function listTeachersPublic(categoryId?: string | null): Promise<
     name: String(r.name ?? ""),
     teacherSubject: (r.teacher_subject as string | null) ?? (r.teacherSubject as string | null) ?? null,
     teacherAvatarUrl: (r.teacher_avatar_url as string | null) ?? (r.teacherAvatarUrl as string | null) ?? null,
+    country: (r.country as string | null) ?? null,
   }));
 }
 
@@ -1253,6 +1350,7 @@ export type TeacherHomepageRow = {
   name: string;
   teacherSubject: string | null;
   teacherAvatarUrl: string | null;
+  country: string | null;
   createdAt: string;
   /** 1–4 إن حُدّد من لوحة التحكم؛ وإلا null */
   homepageOrder: number | null;
@@ -1313,7 +1411,7 @@ export async function listTeachersForHomepage(): Promise<TeacherHomepageRow[]> {
   try {
     await ensureTeacherHomepageOrderColumn().catch(() => {});
     const rows = await sql`
-      SELECT id, name, teacher_subject, teacher_avatar_url, created_at, teacher_homepage_order
+      SELECT id, name, teacher_subject, teacher_avatar_url, country, created_at, teacher_homepage_order
       FROM "User"
       WHERE role = 'TEACHER'
       ORDER BY name ASC
@@ -1328,6 +1426,7 @@ export async function listTeachersForHomepage(): Promise<TeacherHomepageRow[]> {
         name: String(r.name ?? ""),
         teacherSubject: (r.teacher_subject as string | null) ?? null,
         teacherAvatarUrl: (r.teacher_avatar_url as string | null) ?? null,
+        country: (r.country as string | null) ?? null,
         createdAt:
           r.created_at instanceof Date
             ? r.created_at.toISOString()
@@ -1730,6 +1829,10 @@ async function getHomepageSettingsUncached(): Promise<HomepageSetting> {
         (row as { store_enabled?: boolean }).store_enabled ??
           (c as { storeEnabled?: boolean }).storeEnabled,
       ),
+      whiteboardLibraryEnabled: Boolean(
+        (row as { whiteboard_library_enabled?: boolean }).whiteboard_library_enabled ??
+          (c as { whiteboardLibraryEnabled?: boolean }).whiteboardLibraryEnabled,
+      ),
       storeSectionTitle: pickReviewsSectionString(
         row,
         c,
@@ -1889,6 +1992,40 @@ async function getHomepageSettingsUncached(): Promise<HomepageSetting> {
         String(row.add_balance_waiting_note_en).trim() !== ""
           ? String(row.add_balance_waiting_note_en).trim().slice(0, 1000)
           : null,
+      addBalancePaypalMethodTitle:
+        (c.addBalancePaypalMethodTitle as string) ?? HOMEPAGE_DEFAULTS.addBalancePaypalMethodTitle,
+      addBalancePaypalMethodTitleEn:
+        row.add_balance_paypal_method_title_en != null &&
+        String(row.add_balance_paypal_method_title_en).trim() !== ""
+          ? String(row.add_balance_paypal_method_title_en).trim().slice(0, 300)
+          : null,
+      addBalancePaypalTransferInstruction:
+        (c.addBalancePaypalTransferInstruction as string) ??
+        HOMEPAGE_DEFAULTS.addBalancePaypalTransferInstruction,
+      addBalancePaypalTransferInstructionEn:
+        row.add_balance_paypal_transfer_instruction_en != null &&
+        String(row.add_balance_paypal_transfer_instruction_en).trim() !== ""
+          ? String(row.add_balance_paypal_transfer_instruction_en).trim().slice(0, 1000)
+          : null,
+      addBalancePaypalAccount:
+        (c.addBalancePaypalAccount as string) ?? HOMEPAGE_DEFAULTS.addBalancePaypalAccount,
+      addBalanceInstapayMethodTitle:
+        (c.addBalanceInstapayMethodTitle as string) ?? HOMEPAGE_DEFAULTS.addBalanceInstapayMethodTitle,
+      addBalanceInstapayMethodTitleEn:
+        row.add_balance_instapay_method_title_en != null &&
+        String(row.add_balance_instapay_method_title_en).trim() !== ""
+          ? String(row.add_balance_instapay_method_title_en).trim().slice(0, 300)
+          : null,
+      addBalanceInstapayTransferInstruction:
+        (c.addBalanceInstapayTransferInstruction as string) ??
+        HOMEPAGE_DEFAULTS.addBalanceInstapayTransferInstruction,
+      addBalanceInstapayTransferInstructionEn:
+        row.add_balance_instapay_transfer_instruction_en != null &&
+        String(row.add_balance_instapay_transfer_instruction_en).trim() !== ""
+          ? String(row.add_balance_instapay_transfer_instruction_en).trim().slice(0, 1000)
+          : null,
+      addBalanceInstapayAccount:
+        (c.addBalanceInstapayAccount as string) ?? HOMEPAGE_DEFAULTS.addBalanceInstapayAccount,
       copyrightOverlayStyle: (() => {
         const raw =
           row.copyright_overlay_style ??
@@ -2026,6 +2163,16 @@ export async function updateHomepageSettings(data: {
   add_balance_whatsapp_button_text_en?: string | null;
   add_balance_waiting_note?: string | null;
   add_balance_waiting_note_en?: string | null;
+  add_balance_paypal_method_title?: string | null;
+  add_balance_paypal_method_title_en?: string | null;
+  add_balance_paypal_transfer_instruction?: string | null;
+  add_balance_paypal_transfer_instruction_en?: string | null;
+  add_balance_paypal_account?: string | null;
+  add_balance_instapay_method_title?: string | null;
+  add_balance_instapay_method_title_en?: string | null;
+  add_balance_instapay_transfer_instruction?: string | null;
+  add_balance_instapay_transfer_instruction_en?: string | null;
+  add_balance_instapay_account?: string | null;
   copyright_overlay_style?: "floating" | "watermark" | null;
   platform_news_enabled?: boolean;
   platform_news_items?: string | null;
@@ -2411,6 +2558,36 @@ export async function updateHomepageSettings(data: {
   if (data.add_balance_waiting_note_en !== undefined) {
     await sql`UPDATE "HomepageSetting" SET add_balance_waiting_note_en = ${data.add_balance_waiting_note_en}, updated_at = NOW() WHERE id = 'default'`;
   }
+  if (data.add_balance_paypal_method_title !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_paypal_method_title = ${data.add_balance_paypal_method_title}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_paypal_method_title_en !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_paypal_method_title_en = ${data.add_balance_paypal_method_title_en}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_paypal_transfer_instruction !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_paypal_transfer_instruction = ${data.add_balance_paypal_transfer_instruction}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_paypal_transfer_instruction_en !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_paypal_transfer_instruction_en = ${data.add_balance_paypal_transfer_instruction_en}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_paypal_account !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_paypal_account = ${data.add_balance_paypal_account}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_instapay_method_title !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_instapay_method_title = ${data.add_balance_instapay_method_title}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_instapay_method_title_en !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_instapay_method_title_en = ${data.add_balance_instapay_method_title_en}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_instapay_transfer_instruction !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_instapay_transfer_instruction = ${data.add_balance_instapay_transfer_instruction}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_instapay_transfer_instruction_en !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_instapay_transfer_instruction_en = ${data.add_balance_instapay_transfer_instruction_en}, updated_at = NOW() WHERE id = 'default'`;
+  }
+  if (data.add_balance_instapay_account !== undefined) {
+    await sql`UPDATE "HomepageSetting" SET add_balance_instapay_account = ${data.add_balance_instapay_account}, updated_at = NOW() WHERE id = 'default'`;
+  }
   if (data.copyright_overlay_style !== undefined) {
     await ensureHomepageCopyrightOverlayColumns();
     await sql`UPDATE "HomepageSetting" SET copyright_overlay_style = ${data.copyright_overlay_style}, updated_at = NOW() WHERE id = 'default'`;
@@ -2496,6 +2673,28 @@ export async function setStoreFeatureEnabled(enabled: boolean): Promise<void> {
     VALUES ('default', ${enabled}, NOW())
     ON CONFLICT (id) DO UPDATE SET
       store_enabled = EXCLUDED.store_enabled,
+      updated_at = NOW()
+  `;
+}
+
+export async function getWhiteboardLibraryFeatureEnabled(): Promise<boolean> {
+  try {
+    await ensureHomepageWhiteboardLibraryEnabledColumn();
+    const rows = await sql`SELECT whiteboard_library_enabled FROM "HomepageSetting" WHERE id = 'default' LIMIT 1`;
+    const v = (rows[0] as { whiteboard_library_enabled?: boolean } | undefined)?.whiteboard_library_enabled;
+    return !!v;
+  } catch {
+    return false;
+  }
+}
+
+export async function setWhiteboardLibraryFeatureEnabled(enabled: boolean): Promise<void> {
+  await ensureHomepageWhiteboardLibraryEnabledColumn();
+  await sql`
+    INSERT INTO "HomepageSetting" (id, whiteboard_library_enabled, updated_at)
+    VALUES ('default', ${enabled}, NOW())
+    ON CONFLICT (id) DO UPDATE SET
+      whiteboard_library_enabled = EXCLUDED.whiteboard_library_enabled,
       updated_at = NOW()
   `;
 }
@@ -3498,16 +3697,19 @@ export async function createCourse(data: {
   max_quiz_attempts?: number | null;
   category_id?: string | null;
   accepts_homework?: boolean;
+  country?: string | null;
+  learning_track?: string | null;
 }): Promise<Course> {
   await ensureCourseBilingualColumns();
+  await ensureCourseClassificationColumns().catch(() => {});
   const id = generateId();
   const catId = data.category_id ?? null;
   const acceptsHomework = data.accepts_homework ?? false;
   let rows: Record<string, unknown>[];
   try {
     rows = await sql`
-      INSERT INTO "Course" (id, title, title_ar, slug, description, description_en, short_desc, short_desc_en, image_url, price, is_published, created_by_id, max_quiz_attempts, category_id, accepts_homework)
-      VALUES (${id}, ${data.title}, ${data.title_ar}, ${data.slug}, ${data.description}, ${data.description_en ?? null}, ${data.short_desc ?? null}, ${data.short_desc_en ?? null}, ${data.image_url ?? null}, ${data.price}, ${data.is_published}, ${data.created_by_id}, ${data.max_quiz_attempts ?? null}, ${catId}, ${acceptsHomework})
+      INSERT INTO "Course" (id, title, title_ar, slug, description, description_en, short_desc, short_desc_en, image_url, price, is_published, created_by_id, max_quiz_attempts, category_id, accepts_homework, country, learning_track)
+      VALUES (${id}, ${data.title}, ${data.title_ar}, ${data.slug}, ${data.description}, ${data.description_en ?? null}, ${data.short_desc ?? null}, ${data.short_desc_en ?? null}, ${data.image_url ?? null}, ${data.price}, ${data.is_published}, ${data.created_by_id}, ${data.max_quiz_attempts ?? null}, ${catId}, ${acceptsHomework}, ${data.country ?? null}, ${data.learning_track ?? null})
       RETURNING *
     `;
   } catch (err) {
@@ -3555,9 +3757,12 @@ export async function updateCourse(
     max_quiz_attempts?: number | null;
     category_id?: string | null;
     accepts_homework?: boolean;
+    country?: string | null;
+    learning_track?: string | null;
   }
 ): Promise<void> {
   await ensureCourseBilingualColumns();
+  await ensureCourseClassificationColumns().catch(() => {});
   if (data.title !== undefined) await sql`UPDATE "Course" SET title = ${data.title}, updated_at = NOW() WHERE id = ${id}`;
   if (data.title_ar !== undefined) await sql`UPDATE "Course" SET title_ar = ${data.title_ar}, updated_at = NOW() WHERE id = ${id}`;
   if (data.description !== undefined) await sql`UPDATE "Course" SET description = ${data.description}, updated_at = NOW() WHERE id = ${id}`;
@@ -3575,6 +3780,12 @@ export async function updateCourse(
     } catch {
       /* العمود قد يكون غير موجود قبل تشغيل scripts/add-homework.sql */
     }
+  }
+  if (data.country !== undefined) {
+    await sql`UPDATE "Course" SET country = ${data.country}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.learning_track !== undefined) {
+    await sql`UPDATE "Course" SET learning_track = ${data.learning_track}, updated_at = NOW() WHERE id = ${id}`;
   }
 }
 
@@ -4083,10 +4294,33 @@ export async function hasPartialCourseAccess(userId: string, courseId: string): 
 }
 
 /** دورات الطالب: المسجّل فيها + الدورات المتاحة عبر أكواد (حصص/اختبارات محددة) + كل الدورات المدفوعة المنشورة عند اشتراك منصة نشط */
+export async function getDirectEnrollmentCourseIds(userId: string): Promise<Set<string>> {
+  const rows = await sql`
+    SELECT course_id FROM "Enrollment" WHERE user_id = ${userId}
+    UNION
+    SELECT ac.course_id
+    FROM "ActivationCode" ac
+    JOIN "ActivationCodeLesson" acl ON acl.activation_code_id = ac.id
+    WHERE ac.used_by_user_id = ${userId} AND ac.used_at IS NOT NULL
+    UNION
+    SELECT ac.course_id
+    FROM "ActivationCode" ac
+    JOIN "ActivationCodeQuiz" acq ON acq.activation_code_id = ac.id
+    WHERE ac.used_by_user_id = ${userId} AND ac.used_at IS NOT NULL
+  `;
+  return new Set(
+    (rows as { course_id?: string }[])
+      .map((r) => String(r.course_id ?? ""))
+      .filter(Boolean),
+  );
+}
+
+/** دورات الطالب: المسجّل فيها + الدورات المتاحة عبر أكواد (حصص/اختبارات محددة) + كل الدورات المدفوعة المنشورة عند اشتراك منصة نشط */
 export async function getAccessibleCoursesForUser(userId: string): Promise<(Course & { category?: Category })[]> {
   await ensurePlatformSubscriptionSchema();
   await ensureLessonRatingsSchema();
-  const rows = await sql`
+  const [rows, enrolledIds, user] = await Promise.all([
+    sql`
     SELECT c.*, ${courseRatingSelectSql()}, cat.id as cat_id, cat.name as cat_name, cat.name_ar as cat_name_ar, cat.slug as cat_slug
     FROM "Course" c
     LEFT JOIN "Category" cat ON c.category_id = cat.id
@@ -4112,8 +4346,11 @@ export async function getAccessibleCoursesForUser(userId: string): Promise<(Cour
       AND COALESCE(c.price, 0) > 0
     )
     ORDER BY c.created_at DESC
-  `;
-  return (rows as Record<string, unknown>[]).map((r) => {
+  `,
+    getDirectEnrollmentCourseIds(userId),
+    getUserById(userId),
+  ]);
+  const courses = (rows as Record<string, unknown>[]).map((r) => {
     const category = r.cat_id
       ? rowToCamel({ id: r.cat_id, name: r.cat_name, name_ar: r.cat_name_ar, slug: r.cat_slug })
       : null;
@@ -4121,6 +4358,13 @@ export async function getAccessibleCoursesForUser(userId: string): Promise<(Cour
     const base = rowToCamel(rest) ?? {};
     return { ...base, category };
   }) as unknown as (Course & { category?: Category })[];
+  const studentProfile = user
+    ? { country: user.country ?? null, learning_track: user.learning_track ?? null }
+    : null;
+  return courses.filter((course) => {
+    if (enrolledIds.has(course.id)) return true;
+    return courseVisibleToStudent(course, studentProfile);
+  });
 }
 
 export type LessonRatingSummary = {
@@ -4976,4 +5220,347 @@ export async function createMessage(data: {
   await sql`UPDATE "Conversation" SET updated_at = NOW() WHERE id = ${data.conversation_id}`;
   const rows = await sql`SELECT * FROM "Message" WHERE id = ${id} LIMIT 1`;
   return rowToCamel(rows[0] as Record<string, unknown>) as Message;
+}
+
+// ----- Whiteboard files library (standalone, code-gated) -----
+
+let whiteboardFilesSchemaEnsured = false;
+
+async function ensureWhiteboardFilesSchema(): Promise<void> {
+  if (whiteboardFilesSchemaEnsured) return;
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS "WhiteboardFile" (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        title_ar TEXT,
+        description TEXT NOT NULL DEFAULT '',
+        description_en TEXT,
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+        snapshot_json_url TEXT,
+        pdf_url TEXT,
+        image_url TEXT,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_by_id TEXT REFERENCES "User"(id) ON DELETE SET NULL,
+        published_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS "WhiteboardFile_status_active_sort_idx"
+      ON "WhiteboardFile"(status, is_active, sort_order, created_at DESC)
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS "WhiteboardFileCode" (
+        id TEXT PRIMARY KEY,
+        whiteboard_file_id TEXT NOT NULL REFERENCES "WhiteboardFile"(id) ON DELETE CASCADE,
+        code TEXT NOT NULL UNIQUE,
+        used_at TIMESTAMPTZ,
+        used_by_user_id TEXT REFERENCES "User"(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS "WhiteboardFileCode_file_user_idx"
+      ON "WhiteboardFileCode"(whiteboard_file_id, used_by_user_id)
+    `;
+    whiteboardFilesSchemaEnsured = true;
+  } catch {
+    /* DDL غير متاح */
+  }
+}
+
+export type WhiteboardFileRow = {
+  id: string;
+  title: string;
+  titleAr: string | null;
+  description: string;
+  descriptionEn: string | null;
+  status: "draft" | "published";
+  snapshotJsonUrl: string | null;
+  pdfUrl: string | null;
+  imageUrl: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdById: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function mapWhiteboardFile(r: Record<string, unknown>): WhiteboardFileRow {
+  return {
+    id: String(r.id),
+    title: String(r.title ?? ""),
+    titleAr: (r.title_ar as string | null) ?? null,
+    description: String(r.description ?? ""),
+    descriptionEn: (r.description_en as string | null) ?? null,
+    status: (r.status === "published" ? "published" : "draft") as "draft" | "published",
+    snapshotJsonUrl: r.snapshot_json_url ? String(r.snapshot_json_url) : null,
+    pdfUrl: r.pdf_url ? String(r.pdf_url) : null,
+    imageUrl: r.image_url ? String(r.image_url) : null,
+    sortOrder: Number(r.sort_order ?? 0),
+    isActive: Boolean(r.is_active ?? true),
+    createdById: r.created_by_id ? String(r.created_by_id) : null,
+    publishedAt:
+      r.published_at instanceof Date
+        ? r.published_at.toISOString()
+        : r.published_at
+          ? String(r.published_at)
+          : null,
+    createdAt:
+      r.created_at instanceof Date
+        ? r.created_at.toISOString()
+        : String(r.created_at ?? new Date().toISOString()),
+    updatedAt:
+      r.updated_at instanceof Date
+        ? r.updated_at.toISOString()
+        : String(r.updated_at ?? new Date().toISOString()),
+  };
+}
+
+export async function listWhiteboardFilesAll(): Promise<WhiteboardFileRow[]> {
+  try {
+    await ensureWhiteboardFilesSchema();
+    const rows = await sql`
+      SELECT * FROM "WhiteboardFile"
+      ORDER BY sort_order ASC, created_at DESC
+    `;
+    return (rows as Record<string, unknown>[]).map(mapWhiteboardFile);
+  } catch {
+    return [];
+  }
+}
+
+export async function listWhiteboardFilesPublished(): Promise<WhiteboardFileRow[]> {
+  try {
+    await ensureWhiteboardFilesSchema();
+    const rows = await sql`
+      SELECT * FROM "WhiteboardFile"
+      WHERE status = 'published' AND is_active = true
+      ORDER BY sort_order ASC, created_at DESC
+    `;
+    return (rows as Record<string, unknown>[]).map(mapWhiteboardFile);
+  } catch {
+    return [];
+  }
+}
+
+export async function getWhiteboardFileById(id: string): Promise<WhiteboardFileRow | null> {
+  try {
+    await ensureWhiteboardFilesSchema();
+    const rows = await sql`SELECT * FROM "WhiteboardFile" WHERE id = ${id} LIMIT 1`;
+    const r = rows[0] as Record<string, unknown> | undefined;
+    return r ? mapWhiteboardFile(r) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function createWhiteboardFile(data: {
+  title: string;
+  title_ar?: string | null;
+  description?: string | null;
+  description_en?: string | null;
+  created_by_id: string;
+}): Promise<WhiteboardFileRow> {
+  await ensureWhiteboardFilesSchema();
+  const id = generateId();
+  await sql`
+    INSERT INTO "WhiteboardFile" (id, title, title_ar, description, description_en, status, created_by_id)
+    VALUES (
+      ${id},
+      ${data.title.trim()},
+      ${data.title_ar?.trim() || null},
+      ${(data.description ?? "").trim()},
+      ${data.description_en?.trim() || null},
+      'draft',
+      ${data.created_by_id}
+    )
+  `;
+  const row = await getWhiteboardFileById(id);
+  if (!row) throw new Error("فشل إنشاء ملف السبورة");
+  return row;
+}
+
+export async function updateWhiteboardFile(
+  id: string,
+  data: {
+    title?: string;
+    title_ar?: string | null;
+    description?: string | null;
+    description_en?: string | null;
+    sort_order?: number;
+    is_active?: boolean;
+    snapshot_json_url?: string | null;
+    pdf_url?: string | null;
+    image_url?: string | null;
+    status?: "draft" | "published";
+    published_at?: Date | null;
+  },
+): Promise<void> {
+  await ensureWhiteboardFilesSchema();
+  if (data.title !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET title = ${data.title.trim()}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.title_ar !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET title_ar = ${data.title_ar?.trim() || null}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.description !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET description = ${data.description?.trim() || null}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.description_en !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET description_en = ${data.description_en?.trim() || null}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.sort_order !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET sort_order = ${data.sort_order}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.is_active !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET is_active = ${data.is_active}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.snapshot_json_url !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET snapshot_json_url = ${data.snapshot_json_url}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.pdf_url !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET pdf_url = ${data.pdf_url}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.image_url !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET image_url = ${data.image_url}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.status !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET status = ${data.status}, updated_at = NOW() WHERE id = ${id}`;
+  }
+  if (data.published_at !== undefined) {
+    await sql`UPDATE "WhiteboardFile" SET published_at = ${data.published_at}, updated_at = NOW() WHERE id = ${id}`;
+  }
+}
+
+export async function deleteWhiteboardFile(id: string): Promise<void> {
+  await ensureWhiteboardFilesSchema();
+  await sql`DELETE FROM "WhiteboardFile" WHERE id = ${id}`;
+}
+
+export async function userHasWhiteboardFileAccess(userId: string, fileId: string): Promise<boolean> {
+  try {
+    await ensureWhiteboardFilesSchema();
+    const rows = await sql`
+      SELECT 1 FROM "WhiteboardFileCode"
+      WHERE whiteboard_file_id = ${fileId}
+        AND used_by_user_id = ${userId}
+        AND used_at IS NOT NULL
+      LIMIT 1
+    `;
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function listWhiteboardFileIdsForUser(userId: string): Promise<Set<string>> {
+  try {
+    await ensureWhiteboardFilesSchema();
+    const rows = await sql`
+      SELECT DISTINCT whiteboard_file_id FROM "WhiteboardFileCode"
+      WHERE used_by_user_id = ${userId} AND used_at IS NOT NULL
+    `;
+    return new Set((rows as { whiteboard_file_id: string }[]).map((r) => String(r.whiteboard_file_id)));
+  } catch {
+    return new Set();
+  }
+}
+
+export type WhiteboardFileCodeRow = {
+  id: string;
+  whiteboardFileId: string;
+  code: string;
+  usedAt: string | null;
+  usedByUserId: string | null;
+  createdAt: string;
+};
+
+function mapWhiteboardFileCode(r: Record<string, unknown>): WhiteboardFileCodeRow {
+  return {
+    id: String(r.id),
+    whiteboardFileId: String(r.whiteboard_file_id),
+    code: String(r.code),
+    usedAt:
+      r.used_at instanceof Date
+        ? r.used_at.toISOString()
+        : r.used_at
+          ? String(r.used_at)
+          : null,
+    usedByUserId: r.used_by_user_id ? String(r.used_by_user_id) : null,
+    createdAt:
+      r.created_at instanceof Date
+        ? r.created_at.toISOString()
+        : String(r.created_at ?? new Date().toISOString()),
+  };
+}
+
+export async function listWhiteboardFileCodes(fileId: string): Promise<WhiteboardFileCodeRow[]> {
+  await ensureWhiteboardFilesSchema();
+  const rows = await sql`
+    SELECT * FROM "WhiteboardFileCode"
+    WHERE whiteboard_file_id = ${fileId}
+    ORDER BY created_at DESC
+  `;
+  return (rows as Record<string, unknown>[]).map(mapWhiteboardFileCode);
+}
+
+export async function createWhiteboardFileCodes(
+  fileId: string,
+  count: number,
+): Promise<{ id: string; code: string }[]> {
+  await ensureWhiteboardFilesSchema();
+  const created: { id: string; code: string }[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < count; i++) {
+    let code = generateCodeString();
+    while (seen.has(code)) code = generateCodeString();
+    seen.add(code);
+    const id = generateId();
+    await sql`
+      INSERT INTO "WhiteboardFileCode" (id, whiteboard_file_id, code)
+      VALUES (${id}, ${fileId}, ${code})
+    `;
+    created.push({ id, code });
+  }
+  return created;
+}
+
+export async function getWhiteboardFileCodeByCode(
+  code: string,
+): Promise<(WhiteboardFileCodeRow & { fileTitle?: string }) | null> {
+  await ensureWhiteboardFilesSchema();
+  const rows = await sql`
+    SELECT wfc.*, wf.title as file_title
+    FROM "WhiteboardFileCode" wfc
+    INNER JOIN "WhiteboardFile" wf ON wf.id = wfc.whiteboard_file_id
+    WHERE wfc.code = ${code.trim()} AND wfc.used_at IS NULL
+    LIMIT 1
+  `;
+  const r = rows[0] as Record<string, unknown> | undefined;
+  if (!r) return null;
+  return {
+    ...mapWhiteboardFileCode(r),
+    fileTitle: r.file_title ? String(r.file_title) : undefined,
+  };
+}
+
+export async function useWhiteboardFileCode(
+  codeId: string,
+  userId: string,
+): Promise<{ whiteboardFileId: string } | null> {
+  await ensureWhiteboardFilesSchema();
+  const updated = await sql`
+    UPDATE "WhiteboardFileCode"
+    SET used_at = NOW(), used_by_user_id = ${userId}
+    WHERE id = ${codeId} AND used_at IS NULL
+    RETURNING whiteboard_file_id
+  `;
+  const row = updated[0] as { whiteboard_file_id?: string } | undefined;
+  if (!row?.whiteboard_file_id) return null;
+  return { whiteboardFileId: String(row.whiteboard_file_id) };
 }

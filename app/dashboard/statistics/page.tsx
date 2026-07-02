@@ -10,8 +10,10 @@ import {
   getQuizAttemptsForTeacher,
   getTotalEarningsForTeacher,
   getCoursesWithCountsForCreator,
+  getUserById,
 } from "@/lib/db";
 import { getServerTranslator } from "@/lib/i18n/server";
+import { teacherCanViewStatistics } from "@/lib/teacher-statistics";
 import StatisticsContent from "./StatisticsContent";
 
 export default async function StatisticsPage() {
@@ -24,6 +26,10 @@ export default async function StatisticsPage() {
   const t = await getServerTranslator();
 
   if (role === "TEACHER") {
+    const teacherUser = await getUserById(session.user.id);
+    if (!teacherCanViewStatistics(teacherUser)) {
+      redirect("/dashboard");
+    }
     const teacherId = session.user.id;
     const [students, attempts, totalEarnings, myCourses] = await Promise.all([
       getStudentsEnrolledInTeacherCourses(teacherId),

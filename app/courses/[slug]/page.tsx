@@ -11,13 +11,12 @@ import {
   getUserById,
   getLiveStreamsByCourseId,
   getHomepageSettings,
-  userHasWhiteboardAccessForCourse,
   getStudentPlatformSubscriptionStatus,
 } from "@/lib/db";
 import { EnrollButton } from "./EnrollButton";
-import { WhiteboardCodePrompt } from "@/components/WhiteboardCodePrompt";
 import { getLocaleFromCookie, getServerTranslator } from "@/lib/i18n/server";
 import { pickLocalizedText } from "@/lib/i18n/localized-field";
+import { courseVisibleToStudent } from "@/lib/student-signup";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -113,6 +112,16 @@ export default async function CoursePage({ params }: Props) {
       if (paidCourseCoveredBySubscription) {
         subscriptionExpiresAt = subStatus.expiresAt;
       }
+      const hasPartialAccess = allowedLessonIds.length > 0 || allowedQuizIds.length > 0;
+      if (
+        !isEnrolled &&
+        !hasPartialAccess &&
+        !paidCourseCoveredBySubscription &&
+        user &&
+        !courseVisibleToStudent(courseRow, user)
+      ) {
+        notFound();
+      }
     }
   } catch {
     notFound();
@@ -159,24 +168,10 @@ export default async function CoursePage({ params }: Props) {
     courseCreatedBy != null &&
     session.user.id === courseCreatedBy;
 
-  const [hasWhiteboardAccess, liveStreams, homepageSettings] = await Promise.all([
-    isStaff || isCourseTeacher
-      ? Promise.resolve(true)
-      : session?.user?.id
-        ? userHasWhiteboardAccessForCourse(session.user.id, course.id)
-        : Promise.resolve(false),
+  const [liveStreams, homepageSettings] = await Promise.all([
     canAccessContent ? getLiveStreamsByCourseId(course.id) : Promise.resolve([]),
     getHomepageSettings(),
   ]);
-  const hasWhiteboardStreams = liveStreams.some((ls) => {
-    const row = ls as unknown as Record<string, unknown>;
-    return row.whiteboard_enabled !== false && row.whiteboardEnabled !== false;
-  });
-  const showWhiteboardCodePrompt =
-    canAccessContent &&
-    session?.user?.role === "STUDENT" &&
-    hasWhiteboardStreams &&
-    !hasWhiteboardAccess;
   const formatStreamDate = (d: Date | string) => {
     const date = typeof d === "string" ? new Date(d) : d;
     return new Intl.DateTimeFormat(locale === "ar" ? "ar-EG" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(date);
@@ -329,7 +324,7 @@ export default async function CoursePage({ params }: Props) {
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {whiteboardEnabled && hasWhiteboardAccess && (
+                        {whiteboardEnabled && canAccessContent && (
                           <Link
                             href={`/courses/${courseSegment}/live/${streamId}`}
                             className="rounded-[var(--radius-btn)] bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
@@ -350,7 +345,6 @@ export default async function CoursePage({ params }: Props) {
                     );
                   })}
                 </ul>
-                {showWhiteboardCodePrompt && <WhiteboardCodePrompt />}
               </div>
             )}
 

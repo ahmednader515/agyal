@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useT } from "@/components/LocaleProvider";
 import { CourseFormSaveOverlay } from "../../CourseFormSaveOverlay";
+import { CourseClassificationFields } from "../../CourseClassificationFields";
+import type { LearningTrack } from "@/lib/student-signup";
 
 type CategoryOption = { id: string; name: string; nameAr?: string | null };
 type LessonRow = { title: string; videoUrl: string; content: string; pdfUrl: string; acceptsHomework: boolean };
@@ -30,6 +32,8 @@ type InitialData = {
   isPublished: boolean;
   maxQuizAttempts: number | null;
   categoryId: string;
+  country: string;
+  learningTrack: string;
   lessons: LessonRow[];
   quizzes: InitialQuizRow[];
   contentOrder: ContentOrderEntry[];
@@ -38,7 +42,19 @@ type InitialData = {
 const defaultLesson: LessonRow = { title: "", videoUrl: "", content: "", pdfUrl: "", acceptsHomework: false };
 const defaultQuiz: QuizRow = { title: "", timeLimitMinutes: "", questions: [{ type: "MULTIPLE_CHOICE", questionText: "", options: [{ text: "", isCorrect: false }] }] };
 
-export function EditCourseForm({ courseId, initialData }: { courseId: string; initialData: InitialData }) {
+export function EditCourseForm({
+  courseId,
+  initialData,
+  role,
+  teacherCountry,
+  teacherLearningTrack,
+}: {
+  courseId: string;
+  initialData: InitialData;
+  role: "ADMIN" | "ASSISTANT_ADMIN" | "TEACHER";
+  teacherCountry?: string | null;
+  teacherLearningTrack?: string | null;
+}) {
   const router = useRouter();
   const t = useT();
   const Cf = "dashboard.courseForm";
@@ -63,6 +79,8 @@ export function EditCourseForm({ courseId, initialData }: { courseId: string; in
     categoryId: initialData.categoryId ?? "",
     categoryNameAr: "",
     categoryNameEn: "",
+    country: initialData.country || "EG",
+    learningTrack: (initialData.learningTrack as LearningTrack) || "",
   });
   const [lessons, setLessons] = useState<LessonRow[]>(
     initialData.lessons.length > 0
@@ -311,6 +329,9 @@ export function EditCourseForm({ courseId, initialData }: { courseId: string; in
       ...(form.categoryNameAr.trim() || form.categoryNameEn.trim()
         ? { categoryNameAr: form.categoryNameAr.trim(), categoryNameEn: form.categoryNameEn.trim() }
         : form.categoryId ? { categoryId: form.categoryId } : { categoryId: null }),
+      ...(role !== "TEACHER"
+        ? { country: form.country, learningTrack: form.learningTrack }
+        : {}),
       lessons: validLessons.map((l) => ({
         title: l.title.trim(),
         videoUrl: l.videoUrl.trim() || undefined,
@@ -401,6 +422,15 @@ export function EditCourseForm({ courseId, initialData }: { courseId: string; in
               className="mt-2 w-full rounded-[var(--radius-btn)] border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
             />
           </div>
+          <CourseClassificationFields
+            role={role}
+            country={form.country}
+            learningTrack={form.learningTrack}
+            onCountryChange={(value) => setForm((f) => ({ ...f, country: value }))}
+            onLearningTrackChange={(value) => setForm((f) => ({ ...f, learningTrack: value }))}
+            teacherCountry={teacherCountry}
+            teacherLearningTrack={teacherLearningTrack}
+          />
           <div>
             <label className="block text-sm font-medium text-[var(--color-foreground)]">{t(`${Cf}.categoryOptional`)}</label>
             <p className="mt-1 text-xs text-[var(--color-muted)]">{t(`${Cf}.categoryHelpChooseOrNew`)}</p>

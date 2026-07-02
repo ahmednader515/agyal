@@ -13,11 +13,15 @@ export interface User {
   balance: string;
   student_number?: string | null;
   guardian_number?: string | null;
+  country?: string | null;
+  learning_track?: string | null;
   /** عنوان المادة / التخصص — يظهر في «اختر المدرسين» */
   teacher_subject?: string | null;
   teacher_avatar_url?: string | null;
   /** 1–4 لترتيب البطاقة في الرئيسية؛ null = تلقائي بعد المحددين */
   teacher_homepage_order?: number | null;
+  /** عند false تُخفى صفحة إحصائيات الطلاب عن هذا المدرس */
+  teacher_statistics_enabled?: boolean | null;
   /** كود حقوق الطبع والنشر — للطلاب فقط، فريد، يظهر على مشغّل الحصص */
   copyright_code?: string | null;
   current_session_id?: string | null;
@@ -211,6 +215,8 @@ export interface HomepageSetting {
   subscriptionsEnabled?: boolean;
   /** عند true يظهر قسم متجر المنصة في الصفحة الرئيسية */
   storeEnabled?: boolean;
+  /** عند true يظهر قسم مكتبة السبورات المنفصلة في لوحة التحكم */
+  whiteboardLibraryEnabled?: boolean;
   /** عنوان قسم المتجر في الصفحة الرئيسية (عند null أو فارغ يُستخدم الافتراضي) */
   storeSectionTitle?: string | null;
   storeSectionTitleEn?: string | null;
@@ -261,6 +267,16 @@ export interface HomepageSetting {
   /** نص انتظار إضافة الرصيد */
   addBalanceWaitingNote?: string | null;
   addBalanceWaitingNoteEn?: string | null;
+  addBalancePaypalMethodTitle?: string | null;
+  addBalancePaypalMethodTitleEn?: string | null;
+  addBalancePaypalTransferInstruction?: string | null;
+  addBalancePaypalTransferInstructionEn?: string | null;
+  addBalancePaypalAccount?: string | null;
+  addBalanceInstapayMethodTitle?: string | null;
+  addBalanceInstapayMethodTitleEn?: string | null;
+  addBalanceInstapayTransferInstruction?: string | null;
+  addBalanceInstapayTransferInstructionEn?: string | null;
+  addBalanceInstapayAccount?: string | null;
   /** شكل عرض كود حقوق الطبع على مشغل الفيديو (floating الحالي أو watermark) */
   copyrightOverlayStyle?: "floating" | "watermark" | string | null;
 }
@@ -276,6 +292,35 @@ export interface StoreProduct {
   pdfUrl: string | null;
   isActive: boolean;
   sortOrder: number;
+  createdAt: string;
+}
+
+export type WhiteboardFileStatus = "draft" | "published";
+
+export interface WhiteboardFile {
+  id: string;
+  title: string;
+  titleAr: string | null;
+  description: string;
+  descriptionEn: string | null;
+  status: WhiteboardFileStatus;
+  snapshotJsonUrl: string | null;
+  pdfUrl: string | null;
+  imageUrl: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdById: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WhiteboardFileCode {
+  id: string;
+  whiteboardFileId: string;
+  code: string;
+  usedAt: string | null;
+  usedByUserId: string | null;
   createdAt: string;
 }
 
@@ -298,6 +343,8 @@ export interface Course {
   order: number;
   category_id: string | null;
   created_by_id: string | null;
+  country?: string | null;
+  learning_track?: string | null;
   accepts_homework?: boolean;
   /** متوسط تقييم الكورس المحسوب من كل تقييمات دروسه */
   course_rating?: number | null;
